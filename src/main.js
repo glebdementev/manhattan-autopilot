@@ -57,6 +57,9 @@ class Simulation {
     
     // Raycast targets for LiDAR
     this.raycastTargets = [];
+    
+    // Route completion flag to prevent multiple auto-regenerations
+    this.isRegeneratingRoute = false;
   }
 
   /**
@@ -110,7 +113,6 @@ class Simulation {
       onTrainingStart: () => {
         this.ui.setTrainingStatus('Training...');
         this.ui.setModelStatus('Training...');
-        this.ui.setTrainEnabled(false);
         this.ui.setInstantTrainEnabled(false);
       },
       onTrainingProgress: (epoch, total, loss) => {
@@ -119,7 +121,6 @@ class Simulation {
       },
       onTrainingComplete: () => {
         this.ui.setTrainingStatus('Training complete!');
-        this.ui.setTrainEnabled(true);
         this.ui.setInstantTrainEnabled(true);
         this.updateModelStatus();
       },
@@ -174,8 +175,6 @@ class Simulation {
     });
     
     this.ui.on('instantTrain', () => this.instantTrain());
-    this.ui.on('generateData', () => this.generateSyntheticData());
-    this.ui.on('train', () => this.trainModel());
     this.ui.on('exportModel', () => this.exportModel());
     this.ui.on('importModel', (file) => this.importModel(file));
     
@@ -255,32 +254,16 @@ class Simulation {
   }
 
   /**
-   * Generate synthetic training data instantly
-   */
-  generateSyntheticData() {
-    this.ui.setGenerateDataEnabled(false);
-    this.ui.setTrainingStatus('Generating synthetic data...');
-    
-    // Use setTimeout to allow UI to update before blocking
-    setTimeout(() => {
-      this.trainer.generateSyntheticData(10000);
-      this.ui.setGenerateDataEnabled(true);
-    }, 10);
-  }
-
-  /**
    * Instant train: generate synthetic data and train immediately
    */
   async instantTrain() {
     this.ui.setInstantTrainEnabled(false);
-    this.ui.setGenerateDataEnabled(false);
     this.ui.setTrainingStatus('Generating data & training...');
     
     // Generate data first
     setTimeout(async () => {
       this.trainer.generateSyntheticData(10000);
       await this.trainer.train(20);
-      this.ui.setGenerateDataEnabled(true);
     }, 10);
   }
 
@@ -440,12 +423,20 @@ class Simulation {
    * Update simulation state
    */
   update(dt) {
-    // Skip if route is complete and we're collecting data
+    // Handle route completion - auto-generate new route
     if (this.routeManager.isComplete()) {
       if (this.trainer.isCollecting()) {
         this.trainer.onEpisodeEnd(true);
       }
       this.ui.updateRouteProgress(1, 'Complete!');
+      // Auto-generate a new route after a short delay (prevent multiple triggers)
+      if (!this.isRegeneratingRoute) {
+        this.isRegeneratingRoute = true;
+        setTimeout(() => {
+          this.generateNewRoute();
+          this.isRegeneratingRoute = false;
+        }, 500);
+      }
       return;
     }
     

@@ -82,6 +82,11 @@ export class RouteManager {
   getCurrentTarget(carX, carZ, lookahead = CONTROLLER.LOOKAHEAD_MIN) {
     if (this.waypoints.length === 0) return null;
     
+    // Ensure currentWaypointIndex is within bounds
+    if (this.currentWaypointIndex >= this.waypoints.length) {
+      this.currentWaypointIndex = this.waypoints.length - 1;
+    }
+    
     // Find closest waypoint ahead
     let bestIndex = this.currentWaypointIndex;
     let bestDistance = Infinity;
@@ -91,6 +96,7 @@ export class RouteManager {
     
     for (let i = this.currentWaypointIndex; i < searchEnd; i++) {
       const wp = this.waypoints[i];
+      if (!wp) continue; // Safety check
       const dx = wp.x - carX;
       const dz = wp.z - carZ;
       const distance = Math.sqrt(dx * dx + dz * dz);
@@ -113,13 +119,15 @@ export class RouteManager {
     while (lookaheadIndex < this.waypoints.length - 1 && accumulatedDistance < lookahead) {
       const current = this.waypoints[lookaheadIndex];
       const next = this.waypoints[lookaheadIndex + 1];
+      if (!current || !next) break; // Safety check
       const dx = next.x - current.x;
       const dz = next.z - current.z;
       accumulatedDistance += Math.sqrt(dx * dx + dz * dz);
       lookaheadIndex++;
     }
     
-    return this.waypoints[Math.min(lookaheadIndex, this.waypoints.length - 1)];
+    const targetIndex = Math.min(lookaheadIndex, this.waypoints.length - 1);
+    return this.waypoints[targetIndex] || null;
   }
 
   /**
@@ -145,6 +153,7 @@ export class RouteManager {
    * Check if route is complete
    */
   isComplete() {
+    if (this.waypoints.length === 0) return true;
     return this.currentWaypointIndex >= this.waypoints.length - 1;
   }
 
@@ -173,9 +182,12 @@ export class RouteManager {
    * Get distance to next intersection
    */
   getDistanceToNextIntersection(carX, carZ) {
-    for (let i = this.currentWaypointIndex; i < this.waypoints.length; i++) {
-      if (this.waypoints[i].isIntersection) {
-        const wp = this.waypoints[i];
+    if (this.waypoints.length === 0) return Infinity;
+    
+    const startIdx = Math.min(this.currentWaypointIndex, this.waypoints.length - 1);
+    for (let i = startIdx; i < this.waypoints.length; i++) {
+      const wp = this.waypoints[i];
+      if (wp && wp.isIntersection) {
         const dx = wp.x - carX;
         const dz = wp.z - carZ;
         return Math.sqrt(dx * dx + dz * dz);
@@ -190,11 +202,14 @@ export class RouteManager {
   getLateralOffset(carX, carZ) {
     if (this.waypoints.length < 2) return 0;
     
-    const idx = this.currentWaypointIndex;
+    // Clamp index to valid range
+    const idx = Math.min(this.currentWaypointIndex, this.waypoints.length - 1);
     const prevIdx = Math.max(0, idx - 1);
     
     const p1 = this.waypoints[prevIdx];
-    const p2 = this.waypoints[Math.min(idx, this.waypoints.length - 1)];
+    const p2 = this.waypoints[idx];
+    
+    if (!p1 || !p2) return 0;
     
     // Vector from p1 to p2
     const dx = p2.x - p1.x;
@@ -226,6 +241,8 @@ export class RouteManager {
     const idx = Math.min(this.currentWaypointIndex, this.waypoints.length - 2);
     const p1 = this.waypoints[idx];
     const p2 = this.waypoints[idx + 1];
+    
+    if (!p1 || !p2) return { x: 1, z: 0 };
     
     const dx = p2.x - p1.x;
     const dz = p2.z - p1.z;

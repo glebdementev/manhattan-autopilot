@@ -5,7 +5,8 @@
 // City generation
 export const CITY = {
   GRID_SIZE: 5,           // Number of blocks in each direction
-  BLOCK_SIZE: 60,         // Size of each city block in meters
+  BLOCK_SIZE_X: 30,       // Block width (east-west) in meters - shorter
+  BLOCK_SIZE_Z: 55,       // Block depth (north-south) in meters - longer
   ROAD_WIDTH: 12,         // Width of roads in meters
   SIDEWALK_WIDTH: 3,      // Width of sidewalks in meters
   SIDEWALK_HEIGHT: 0.15,  // Height of sidewalks above road

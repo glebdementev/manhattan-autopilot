@@ -10,10 +10,13 @@ const LANE_OFFSET = CITY.ROAD_WIDTH / 4;
 
 export class SyntheticDataGenerator {
   constructor() {
-    // Precompute city geometry
-    this.citySize = CITY.GRID_SIZE * (CITY.BLOCK_SIZE + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH;
-    this.cityOffset = -this.citySize / 2;
-    this.blockUnit = CITY.BLOCK_SIZE + CITY.ROAD_WIDTH;
+    // Precompute city geometry (rectangular blocks)
+    this.citySizeX = CITY.GRID_SIZE * (CITY.BLOCK_SIZE_X + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH;
+    this.citySizeZ = CITY.GRID_SIZE * (CITY.BLOCK_SIZE_Z + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH;
+    this.cityOffsetX = -this.citySizeX / 2;
+    this.cityOffsetZ = -this.citySizeZ / 2;
+    this.blockUnitX = CITY.BLOCK_SIZE_X + CITY.ROAD_WIDTH;
+    this.blockUnitZ = CITY.BLOCK_SIZE_Z + CITY.ROAD_WIDTH;
     
     // Precompute ray angles for LiDAR simulation
     this.rayAngles = [];
@@ -36,28 +39,29 @@ export class SyntheticDataGenerator {
     // Add sidewalks and buildings for each block
     for (let i = 0; i < CITY.GRID_SIZE; i++) {
       for (let j = 0; j < CITY.GRID_SIZE; j++) {
-        const blockX = this.cityOffset + CITY.ROAD_WIDTH + i * this.blockUnit;
-        const blockZ = this.cityOffset + CITY.ROAD_WIDTH + j * this.blockUnit;
+        const blockX = this.cityOffsetX + CITY.ROAD_WIDTH + i * this.blockUnitX;
+        const blockZ = this.cityOffsetZ + CITY.ROAD_WIDTH + j * this.blockUnitZ;
         
-        // Sidewalks around block
+        // Sidewalks around block (rectangular)
         const sw = CITY.SIDEWALK_WIDTH;
-        const bs = CITY.BLOCK_SIZE;
+        const bsX = CITY.BLOCK_SIZE_X;
+        const bsZ = CITY.BLOCK_SIZE_Z;
         
         // North sidewalk
-        obstacles.push({ minX: blockX, maxX: blockX + bs, minZ: blockZ, maxZ: blockZ + sw });
+        obstacles.push({ minX: blockX, maxX: blockX + bsX, minZ: blockZ, maxZ: blockZ + sw });
         // South sidewalk
-        obstacles.push({ minX: blockX, maxX: blockX + bs, minZ: blockZ + bs - sw, maxZ: blockZ + bs });
+        obstacles.push({ minX: blockX, maxX: blockX + bsX, minZ: blockZ + bsZ - sw, maxZ: blockZ + bsZ });
         // West sidewalk
-        obstacles.push({ minX: blockX, maxX: blockX + sw, minZ: blockZ + sw, maxZ: blockZ + bs - sw });
+        obstacles.push({ minX: blockX, maxX: blockX + sw, minZ: blockZ + sw, maxZ: blockZ + bsZ - sw });
         // East sidewalk
-        obstacles.push({ minX: blockX + bs - sw, maxX: blockX + bs, minZ: blockZ + sw, maxZ: blockZ + bs - sw });
+        obstacles.push({ minX: blockX + bsX - sw, maxX: blockX + bsX, minZ: blockZ + sw, maxZ: blockZ + bsZ - sw });
         
         // Building (fills block inside sidewalks)
         obstacles.push({
           minX: blockX + sw,
-          maxX: blockX + bs - sw,
+          maxX: blockX + bsX - sw,
           minZ: blockZ + sw,
-          maxZ: blockZ + bs - sw,
+          maxZ: blockZ + bsZ - sw,
         });
       }
     }
@@ -142,8 +146,8 @@ export class SyntheticDataGenerator {
     if (isHorizontal) {
       // Horizontal road (along X)
       const roadIndex = Math.floor(Math.random() * (CITY.GRID_SIZE + 1));
-      const z = this.cityOffset + roadIndex * this.blockUnit + CITY.ROAD_WIDTH / 2;
-      const x = this.cityOffset + CITY.ROAD_WIDTH / 2 + Math.random() * (this.citySize - CITY.ROAD_WIDTH);
+      const z = this.cityOffsetZ + roadIndex * this.blockUnitZ + CITY.ROAD_WIDTH / 2;
+      const x = this.cityOffsetX + CITY.ROAD_WIDTH / 2 + Math.random() * (this.citySizeX - CITY.ROAD_WIDTH);
       
       // Direction: +X or -X
       const heading = Math.random() < 0.5 ? 0 : Math.PI;
@@ -155,8 +159,8 @@ export class SyntheticDataGenerator {
     } else {
       // Vertical road (along Z)
       const roadIndex = Math.floor(Math.random() * (CITY.GRID_SIZE + 1));
-      const x = this.cityOffset + roadIndex * this.blockUnit + CITY.ROAD_WIDTH / 2;
-      const z = this.cityOffset + CITY.ROAD_WIDTH / 2 + Math.random() * (this.citySize - CITY.ROAD_WIDTH);
+      const x = this.cityOffsetX + roadIndex * this.blockUnitX + CITY.ROAD_WIDTH / 2;
+      const z = this.cityOffsetZ + CITY.ROAD_WIDTH / 2 + Math.random() * (this.citySizeZ - CITY.ROAD_WIDTH);
       
       // Direction: +Z or -Z
       const heading = Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2;

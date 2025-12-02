@@ -108,12 +108,6 @@ export class UIManager {
             <button id="btn-instant-train" class="primary">⚡ Instant Train</button>
           </div>
           <div class="control-group">
-            <button id="btn-generate-data">Generate 10k Samples</button>
-          </div>
-          <div class="control-group">
-            <button id="btn-train">Train Model</button>
-          </div>
-          <div class="control-group">
             <button id="btn-export">Export Model</button>
             <button id="btn-import">Import Model</button>
           </div>
@@ -155,8 +149,6 @@ export class UIManager {
       btnNewRoute: document.getElementById('btn-new-route'),
       btnReset: document.getElementById('btn-reset'),
       btnInstantTrain: document.getElementById('btn-instant-train'),
-      btnGenerateData: document.getElementById('btn-generate-data'),
-      btnTrain: document.getElementById('btn-train'),
       btnExport: document.getElementById('btn-export'),
       btnImport: document.getElementById('btn-import'),
       modelFileInput: document.getElementById('model-file-input'),
@@ -183,14 +175,6 @@ export class UIManager {
     
     this.elements.btnInstantTrain.addEventListener('click', () => {
       this.emit('instantTrain');
-    });
-    
-    this.elements.btnGenerateData.addEventListener('click', () => {
-      this.emit('generateData');
-    });
-    
-    this.elements.btnTrain.addEventListener('click', () => {
-      this.emit('train');
     });
     
     this.elements.btnExport.addEventListener('click', () => {
@@ -289,24 +273,10 @@ export class UIManager {
   }
 
   /**
-   * Enable/disable train button
-   */
-  setTrainEnabled(enabled) {
-    this.elements.btnTrain.disabled = !enabled;
-  }
-
-  /**
    * Enable/disable instant train button
    */
   setInstantTrainEnabled(enabled) {
     this.elements.btnInstantTrain.disabled = !enabled;
-  }
-
-  /**
-   * Enable/disable generate data button
-   */
-  setGenerateDataEnabled(enabled) {
-    this.elements.btnGenerateData.disabled = !enabled;
   }
 
   /**

@@ -49,26 +49,40 @@ export class CityGenerator {
   }
 
   /**
-   * Get the total city size
+   * Get the total city size in X direction
    */
-  getCitySize() {
-    const totalSize = CITY.GRID_SIZE * (CITY.BLOCK_SIZE + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH;
-    return totalSize;
+  getCitySizeX() {
+    return CITY.GRID_SIZE * (CITY.BLOCK_SIZE_X + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH;
   }
 
   /**
-   * Get city center offset (city is centered at origin)
+   * Get the total city size in Z direction
    */
-  getCityOffset() {
-    return -this.getCitySize() / 2;
+  getCitySizeZ() {
+    return CITY.GRID_SIZE * (CITY.BLOCK_SIZE_Z + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH;
+  }
+
+  /**
+   * Get city center offset X (city is centered at origin)
+   */
+  getCityOffsetX() {
+    return -this.getCitySizeX() / 2;
+  }
+
+  /**
+   * Get city center offset Z (city is centered at origin)
+   */
+  getCityOffsetZ() {
+    return -this.getCitySizeZ() / 2;
   }
 
   /**
    * Create ground plane (grass/terrain outside city)
    */
   createGround() {
-    const size = this.getCitySize() + 100;
-    const geometry = new THREE.PlaneGeometry(size, size);
+    const sizeX = this.getCitySizeX() + 100;
+    const sizeZ = this.getCitySizeZ() + 100;
+    const geometry = new THREE.PlaneGeometry(sizeX, sizeZ);
     const material = createGroundMaterial();
     
     const ground = new THREE.Mesh(geometry, material);
@@ -84,8 +98,9 @@ export class CityGenerator {
    * Create a single road plane covering the entire city grid
    */
   createRoadPlane() {
-    const citySize = this.getCitySize();
-    const geometry = new THREE.PlaneGeometry(citySize, citySize);
+    const citySizeX = this.getCitySizeX();
+    const citySizeZ = this.getCitySizeZ();
+    const geometry = new THREE.PlaneGeometry(citySizeX, citySizeZ);
     const material = createRoadMaterial();
     
     const road = new THREE.Mesh(geometry, material);
@@ -101,12 +116,13 @@ export class CityGenerator {
    * Calculate intersection positions for pathfinding
    */
   calculateIntersections() {
-    const offset = this.getCityOffset();
+    const offsetX = this.getCityOffsetX();
+    const offsetZ = this.getCityOffsetZ();
     
     for (let i = 0; i <= CITY.GRID_SIZE; i++) {
       for (let j = 0; j <= CITY.GRID_SIZE; j++) {
-        const x = offset + i * (CITY.BLOCK_SIZE + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH / 2;
-        const z = offset + j * (CITY.BLOCK_SIZE + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH / 2;
+        const x = offsetX + i * (CITY.BLOCK_SIZE_X + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH / 2;
+        const z = offsetZ + j * (CITY.BLOCK_SIZE_Z + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH / 2;
         
         this.intersections.push({
           id: `${i}_${j}`,
@@ -135,36 +151,39 @@ export class CityGenerator {
   }
 
   /**
-   * Create sidewalk squares for each city block
+   * Create sidewalk rectangles for each city block
    * These are elevated platforms sitting on top of the road plane
    */
   createSidewalks() {
-    const offset = this.getCityOffset();
+    const offsetX = this.getCityOffsetX();
+    const offsetZ = this.getCityOffsetZ();
     const material = createSidewalkMaterial();
-    const blockUnit = CITY.BLOCK_SIZE + CITY.ROAD_WIDTH;
+    const blockUnitX = CITY.BLOCK_SIZE_X + CITY.ROAD_WIDTH;
+    const blockUnitZ = CITY.BLOCK_SIZE_Z + CITY.ROAD_WIDTH;
     
-    // Create one sidewalk square per block
+    // Create one sidewalk rectangle per block
     for (let i = 0; i < CITY.GRID_SIZE; i++) {
       for (let j = 0; j < CITY.GRID_SIZE; j++) {
-        const blockCenterX = offset + CITY.ROAD_WIDTH + i * blockUnit + CITY.BLOCK_SIZE / 2;
-        const blockCenterZ = offset + CITY.ROAD_WIDTH + j * blockUnit + CITY.BLOCK_SIZE / 2;
+        const blockCenterX = offsetX + CITY.ROAD_WIDTH + i * blockUnitX + CITY.BLOCK_SIZE_X / 2;
+        const blockCenterZ = offsetZ + CITY.ROAD_WIDTH + j * blockUnitZ + CITY.BLOCK_SIZE_Z / 2;
         
-        this.createSidewalkSquare(blockCenterX, blockCenterZ, material, i, j);
+        this.createSidewalkRect(blockCenterX, blockCenterZ, material, i, j);
       }
     }
   }
 
   /**
-   * Create a single sidewalk square (elevated platform for a city block)
+   * Create a single sidewalk rectangle (elevated platform for a city block)
    */
-  createSidewalkSquare(centerX, centerZ, material, gridI, gridJ) {
-    const size = CITY.BLOCK_SIZE;
+  createSidewalkRect(centerX, centerZ, material, gridI, gridJ) {
+    const sizeX = CITY.BLOCK_SIZE_X;
+    const sizeZ = CITY.BLOCK_SIZE_Z;
     const height = CITY.SIDEWALK_HEIGHT;
     
-    const geometry = new THREE.BoxGeometry(size, height, size);
+    const geometry = new THREE.BoxGeometry(sizeX, height, sizeZ);
     const sidewalk = new THREE.Mesh(geometry, material);
     
-    // Position the sidewalk square centered on the block, elevated above road
+    // Position the sidewalk rectangle centered on the block, elevated above road
     sidewalk.position.set(centerX, height / 2, centerZ);
     sidewalk.receiveShadow = true;
     sidewalk.castShadow = true;
@@ -177,13 +196,15 @@ export class CityGenerator {
    * Create buildings in city blocks
    */
   createBuildings() {
-    const offset = this.getCityOffset();
-    const blockUnit = CITY.BLOCK_SIZE + CITY.ROAD_WIDTH;
+    const offsetX = this.getCityOffsetX();
+    const offsetZ = this.getCityOffsetZ();
+    const blockUnitX = CITY.BLOCK_SIZE_X + CITY.ROAD_WIDTH;
+    const blockUnitZ = CITY.BLOCK_SIZE_Z + CITY.ROAD_WIDTH;
     
     for (let i = 0; i < CITY.GRID_SIZE; i++) {
       for (let j = 0; j < CITY.GRID_SIZE; j++) {
-        const blockX = offset + CITY.ROAD_WIDTH + i * blockUnit;
-        const blockZ = offset + CITY.ROAD_WIDTH + j * blockUnit;
+        const blockX = offsetX + CITY.ROAD_WIDTH + i * blockUnitX;
+        const blockZ = offsetZ + CITY.ROAD_WIDTH + j * blockUnitZ;
         
         this.createBlockBuildings(blockX, blockZ, i, j);
       }
@@ -197,7 +218,8 @@ export class CityGenerator {
   createBlockBuildings(blockX, blockZ, gridI, gridJ) {
     // Building area fills block inside sidewalk edges
     const sw = CITY.SIDEWALK_WIDTH;
-    const totalSize = CITY.BLOCK_SIZE - 2 * sw;
+    const totalSizeX = CITY.BLOCK_SIZE_X - 2 * sw;
+    const totalSizeZ = CITY.BLOCK_SIZE_Z - 2 * sw;
     
     // Use deterministic random based on grid position
     const seed = gridI * 1000 + gridJ;
@@ -208,8 +230,8 @@ export class CityGenerator {
     const gridCountZ = Math.floor(random() * 3) + 2; // 2, 3, or 4
     
     // Calculate individual building sizes (no gaps)
-    const buildingSizeX = totalSize / gridCountX;
-    const buildingSizeZ = totalSize / gridCountZ;
+    const buildingSizeX = totalSizeX / gridCountX;
+    const buildingSizeZ = totalSizeZ / gridCountZ;
     
     // Buildings start on top of the sidewalk
     const baseY = CITY.SIDEWALK_HEIGHT;

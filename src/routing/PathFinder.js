@@ -124,6 +124,7 @@ export class PathFinder {
       const startNode = this.network.getRandomNode();
       const endNode = this.network.getRandomNode();
       
+      if (!startNode || !endNode) continue;
       if (startNode.id === endNode.id) continue;
       
       const path = this.findPath(startNode.id, endNode.id);
@@ -133,12 +134,23 @@ export class PathFinder {
       }
     }
     
-    // Fallback: just get any valid path
-    const startNode = this.network.getRandomNode();
-    const endNode = this.network.getRandomNode();
-    const path = this.findPath(startNode.id, endNode.id);
+    // Fallback: ensure we get a valid path with different start and end
+    let startNode, endNode, path;
+    for (let fallbackAttempt = 0; fallbackAttempt < 20; fallbackAttempt++) {
+      startNode = this.network.getRandomNode();
+      endNode = this.network.getRandomNode();
+      
+      if (!startNode || !endNode) continue;
+      if (startNode.id === endNode.id) continue;
+      
+      path = this.findPath(startNode.id, endNode.id);
+      if (path.length >= 2) {
+        return { path, startNode, endNode };
+      }
+    }
     
-    return { path, startNode, endNode };
+    // Ultimate fallback: return whatever we have
+    return { path: path || [], startNode, endNode };
   }
 
   /**
