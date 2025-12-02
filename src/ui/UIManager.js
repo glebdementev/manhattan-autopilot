@@ -100,16 +100,24 @@ export class UIManager {
             <span class="label">Loss:</span>
             <span id="loss-value">-</span>
           </div>
+          <div class="stat">
+            <span class="label">Model:</span>
+            <span id="model-status">Not trained</span>
+          </div>
+          <div class="control-group instant-train">
+            <button id="btn-instant-train" class="primary">⚡ Instant Train</button>
+          </div>
           <div class="control-group">
-            <button id="btn-collect">Collect Data (10 episodes)</button>
+            <button id="btn-generate-data">Generate 10k Samples</button>
           </div>
           <div class="control-group">
             <button id="btn-train">Train Model</button>
           </div>
           <div class="control-group">
-            <button id="btn-save">Save</button>
-            <button id="btn-load">Load</button>
+            <button id="btn-export">Export Model</button>
+            <button id="btn-import">Import Model</button>
           </div>
+          <input type="file" id="model-file-input" accept=".json" style="display: none;">
           <div id="training-status"></div>
         </div>
         
@@ -142,15 +150,22 @@ export class UIManager {
       routeStatus: document.getElementById('route-status'),
       samplesValue: document.getElementById('samples-value'),
       lossValue: document.getElementById('loss-value'),
+      modelStatus: document.getElementById('model-status'),
       trainingStatus: document.getElementById('training-status'),
       btnNewRoute: document.getElementById('btn-new-route'),
       btnReset: document.getElementById('btn-reset'),
-      btnCollect: document.getElementById('btn-collect'),
+      btnInstantTrain: document.getElementById('btn-instant-train'),
+      btnGenerateData: document.getElementById('btn-generate-data'),
       btnTrain: document.getElementById('btn-train'),
-      btnSave: document.getElementById('btn-save'),
-      btnLoad: document.getElementById('btn-load'),
+      btnExport: document.getElementById('btn-export'),
+      btnImport: document.getElementById('btn-import'),
+      modelFileInput: document.getElementById('model-file-input'),
       lidarToggle: document.getElementById('lidar-toggle'),
+      autopilotRadio: document.querySelector('input[name="driver-mode"][value="autopilot"]'),
     };
+    
+    // Initially disable autopilot option
+    this.setAutopilotEnabled(false);
   }
 
   /**
@@ -166,20 +181,32 @@ export class UIManager {
       this.emit('reset');
     });
     
-    this.elements.btnCollect.addEventListener('click', () => {
-      this.emit('collectData');
+    this.elements.btnInstantTrain.addEventListener('click', () => {
+      this.emit('instantTrain');
+    });
+    
+    this.elements.btnGenerateData.addEventListener('click', () => {
+      this.emit('generateData');
     });
     
     this.elements.btnTrain.addEventListener('click', () => {
       this.emit('train');
     });
     
-    this.elements.btnSave.addEventListener('click', () => {
-      this.emit('save');
+    this.elements.btnExport.addEventListener('click', () => {
+      this.emit('exportModel');
     });
     
-    this.elements.btnLoad.addEventListener('click', () => {
-      this.emit('load');
+    this.elements.btnImport.addEventListener('click', () => {
+      this.elements.modelFileInput.click();
+    });
+    
+    this.elements.modelFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        this.emit('importModel', file);
+        e.target.value = ''; // Reset for next selection
+      }
     });
     
     // Radio buttons
@@ -262,17 +289,65 @@ export class UIManager {
   }
 
   /**
-   * Enable/disable collect button
-   */
-  setCollectEnabled(enabled) {
-    this.elements.btnCollect.disabled = !enabled;
-  }
-
-  /**
    * Enable/disable train button
    */
   setTrainEnabled(enabled) {
     this.elements.btnTrain.disabled = !enabled;
+  }
+
+  /**
+   * Enable/disable instant train button
+   */
+  setInstantTrainEnabled(enabled) {
+    this.elements.btnInstantTrain.disabled = !enabled;
+  }
+
+  /**
+   * Enable/disable generate data button
+   */
+  setGenerateDataEnabled(enabled) {
+    this.elements.btnGenerateData.disabled = !enabled;
+  }
+
+  /**
+   * Enable/disable autopilot mode option
+   */
+  setAutopilotEnabled(enabled) {
+    if (this.elements.autopilotRadio) {
+      this.elements.autopilotRadio.disabled = !enabled;
+      const label = this.elements.autopilotRadio.parentElement;
+      if (label) {
+        label.style.opacity = enabled ? '1' : '0.4';
+        label.title = enabled ? '' : 'Train or import a model first';
+      }
+    }
+  }
+
+  /**
+   * Update model status display
+   */
+  setModelStatus(status) {
+    if (this.elements.modelStatus) {
+      this.elements.modelStatus.textContent = status;
+      // Color based on status
+      if (status === 'Ready') {
+        this.elements.modelStatus.style.color = '#00ff88';
+      } else if (status === 'Training...') {
+        this.elements.modelStatus.style.color = '#ffaa00';
+      } else {
+        this.elements.modelStatus.style.color = '#ff4444';
+      }
+    }
+  }
+
+  /**
+   * Set driver mode programmatically
+   */
+  setDriverMode(mode) {
+    const radio = document.querySelector(`input[name="driver-mode"][value="${mode}"]`);
+    if (radio && !radio.disabled) {
+      radio.checked = true;
+    }
   }
 
   /**

@@ -195,6 +195,101 @@ export class AutopilotModel {
   }
 
   /**
+   * Export model as downloadable JSON file
+   */
+  async exportToFile() {
+    if (!this.model) {
+      console.warn('No model to export');
+      return false;
+    }
+    
+    try {
+      // Get model weights
+      const weights = [];
+      for (const layer of this.model.layers) {
+        const layerWeights = layer.getWeights();
+        const layerData = [];
+        for (const w of layerWeights) {
+          layerData.push({
+            shape: w.shape,
+            data: Array.from(w.dataSync()),
+          });
+        }
+        weights.push(layerData);
+      }
+      
+      // Create export object
+      const exportData = {
+        version: 1,
+        timestamp: Date.now(),
+        config: {
+          inputSize: AUTOPILOT.INPUT_SIZE,
+          hiddenLayers: AUTOPILOT.HIDDEN_LAYERS,
+          outputSize: AUTOPILOT.OUTPUT_SIZE,
+        },
+        weights,
+        trainingHistory: this.trainingHistory,
+      };
+      
+      // Create and download file
+      const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `autopilot-model-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      console.log('Model exported successfully');
+      return true;
+    } catch (error) {
+      console.error('Export error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Import model from JSON file
+   */
+  async importFromFile(file) {
+    try {
+      const text = await file.text();
+      const importData = JSON.parse(text);
+      
+      // Validate version
+      if (!importData.version || !importData.weights) {
+        throw new Error('Invalid model file format');
+      }
+      
+      // Build model structure
+      this.build();
+      
+      // Load weights
+      for (let i = 0; i < this.model.layers.length && i < importData.weights.length; i++) {
+        const layerWeights = importData.weights[i];
+        if (layerWeights.length > 0) {
+          const tensors = layerWeights.map(w => tf.tensor(w.data, w.shape));
+          this.model.layers[i].setWeights(tensors);
+          tensors.forEach(t => t.dispose());
+        }
+      }
+      
+      // Restore training history
+      if (importData.trainingHistory) {
+        this.trainingHistory = importData.trainingHistory;
+      }
+      
+      console.log('Model imported successfully');
+      return true;
+    } catch (error) {
+      console.error('Import error:', error);
+      return false;
+    }
+  }
+
+  /**
    * Save model to browser storage
    */
   async save(name = 'autopilot-model') {

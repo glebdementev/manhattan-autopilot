@@ -2,11 +2,13 @@
  * Training manager - coordinates data collection and model training
  */
 import { AUTOPILOT } from '../config.js';
+import { SyntheticDataGenerator } from './SyntheticDataGenerator.js';
 
 export class Trainer {
   constructor(model, dataRecorder) {
     this.model = model;
     this.recorder = dataRecorder;
+    this.syntheticGenerator = new SyntheticDataGenerator();
     
     this.trainingInProgress = false;
     this.collectingData = false;
@@ -18,6 +20,7 @@ export class Trainer {
       onTrainingProgress: null,
       onTrainingComplete: null,
       onEpisodeComplete: null,
+      onSyntheticDataGenerated: null,
     };
   }
 
@@ -128,6 +131,58 @@ export class Trainer {
     const targets = batch.map(d => d.target);
     
     return await this.model.trainBatch(inputs, targets);
+  }
+
+  /**
+   * Generate synthetic training data instantly
+   * This bypasses real-time simulation and generates data geometrically
+   */
+  generateSyntheticData(count = 10000) {
+    console.log(`Generating ${count} synthetic training examples...`);
+    const startTime = performance.now();
+    
+    // Generate diverse dataset
+    const syntheticData = this.syntheticGenerator.generateDiverseDataset(count);
+    
+    // Validate and add to recorder
+    let validCount = 0;
+    for (const example of syntheticData) {
+      if (this.syntheticGenerator.validateExample(example)) {
+        this.recorder.data.push({
+          input: example.input,
+          target: example.target,
+          timestamp: Date.now(),
+          synthetic: true,
+        });
+        validCount++;
+      }
+    }
+    
+    // Trim to max size if needed
+    if (this.recorder.data.length > this.recorder.maxDataSize) {
+      this.recorder.data = this.recorder.data.slice(-this.recorder.maxDataSize);
+    }
+    
+    const elapsed = performance.now() - startTime;
+    console.log(`Generated ${validCount} valid examples in ${elapsed.toFixed(1)}ms`);
+    
+    if (this.callbacks.onSyntheticDataGenerated) {
+      this.callbacks.onSyntheticDataGenerated(validCount, elapsed);
+    }
+    
+    return { count: validCount, timeMs: elapsed };
+  }
+
+  /**
+   * Generate synthetic data and immediately train
+   * This is the fastest way to get a trained model
+   */
+  async instantTrain(sampleCount = 10000, epochs = 20) {
+    // Generate data
+    this.generateSyntheticData(sampleCount);
+    
+    // Train
+    return await this.train(epochs);
   }
 
   /**

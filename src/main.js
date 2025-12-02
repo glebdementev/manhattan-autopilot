@@ -109,7 +109,9 @@ class Simulation {
     this.trainer.setCallbacks({
       onTrainingStart: () => {
         this.ui.setTrainingStatus('Training...');
+        this.ui.setModelStatus('Training...');
         this.ui.setTrainEnabled(false);
+        this.ui.setInstantTrainEnabled(false);
       },
       onTrainingProgress: (epoch, total, loss) => {
         this.ui.setTrainingStatus(`Epoch ${epoch}/${total}`);
@@ -118,15 +120,12 @@ class Simulation {
       onTrainingComplete: () => {
         this.ui.setTrainingStatus('Training complete!');
         this.ui.setTrainEnabled(true);
+        this.ui.setInstantTrainEnabled(true);
+        this.updateModelStatus();
       },
-      onEpisodeComplete: (current, total) => {
-        this.ui.setTrainingStatus(`Episode ${current}/${total}`);
-        if (current < total) {
-          // Start new route for next episode
-          this.generateNewRoute();
-        } else {
-          this.ui.setCollectEnabled(true);
-        }
+      onSyntheticDataGenerated: (count, timeMs) => {
+        this.ui.setTrainingStatus(`Generated ${count} samples in ${timeMs.toFixed(0)}ms`);
+        this.ui.updateTrainingStats(this.dataRecorder.getDataSize(), null);
       },
     });
     
@@ -153,7 +152,16 @@ class Simulation {
     this.ui.on('reset', () => this.resetSimulation());
     
     this.ui.on('driverModeChange', (mode) => {
+      // Check if autopilot is available
+      if (mode === 'autopilot' && !this.autopilot.isReady()) {
+        console.warn('Autopilot not ready - falling back to classic');
+        this.ui.setDriverMode('classic');
+        this.ui.setTrainingStatus('Train a model first!');
+        return;
+      }
+      
       this.driverMode = mode;
+      this.car.setMode(mode);
       console.log(`Driver mode: ${mode}`);
     });
     
@@ -165,14 +173,18 @@ class Simulation {
       this.lidar.setVisualizationEnabled(enabled);
     });
     
-    this.ui.on('collectData', () => this.startDataCollection());
+    this.ui.on('instantTrain', () => this.instantTrain());
+    this.ui.on('generateData', () => this.generateSyntheticData());
     this.ui.on('train', () => this.trainModel());
-    this.ui.on('save', () => this.saveAll());
-    this.ui.on('load', () => this.loadAll());
+    this.ui.on('exportModel', () => this.exportModel());
+    this.ui.on('importModel', (file) => this.importModel(file));
     
     // Keyboard input
     this.ui.on('keydown', (key) => this.handleKeyDown(key));
     this.ui.on('keyup', (key) => this.handleKeyUp(key));
+    
+    // Set initial car color
+    this.car.setMode('classic');
   }
 
   /**
@@ -236,16 +248,6 @@ class Simulation {
   }
 
   /**
-   * Start automated data collection
-   */
-  startDataCollection() {
-    this.driverMode = 'classic';
-    this.ui.setCollectEnabled(false);
-    this.trainer.startDataCollection(10);
-    this.generateNewRoute();
-  }
-
-  /**
    * Train the autopilot model
    */
   async trainModel() {
@@ -253,27 +255,77 @@ class Simulation {
   }
 
   /**
-   * Save model and data
+   * Generate synthetic training data instantly
    */
-  async saveAll() {
-    const result = await this.trainer.saveAll();
-    if (result.modelSaved && result.dataSaved) {
-      this.ui.setTrainingStatus('Saved!');
+  generateSyntheticData() {
+    this.ui.setGenerateDataEnabled(false);
+    this.ui.setTrainingStatus('Generating synthetic data...');
+    
+    // Use setTimeout to allow UI to update before blocking
+    setTimeout(() => {
+      this.trainer.generateSyntheticData(10000);
+      this.ui.setGenerateDataEnabled(true);
+    }, 10);
+  }
+
+  /**
+   * Instant train: generate synthetic data and train immediately
+   */
+  async instantTrain() {
+    this.ui.setInstantTrainEnabled(false);
+    this.ui.setGenerateDataEnabled(false);
+    this.ui.setTrainingStatus('Generating data & training...');
+    
+    // Generate data first
+    setTimeout(async () => {
+      this.trainer.generateSyntheticData(10000);
+      await this.trainer.train(20);
+      this.ui.setGenerateDataEnabled(true);
+    }, 10);
+  }
+
+  /**
+   * Export model to downloadable file
+   */
+  async exportModel() {
+    if (!this.autopilot.isReady()) {
+      this.ui.setTrainingStatus('No model to export!');
+      return;
+    }
+    
+    const success = await this.autopilot.exportToFile();
+    if (success) {
+      this.ui.setTrainingStatus('Model exported!');
     } else {
-      this.ui.setTrainingStatus('Save failed');
+      this.ui.setTrainingStatus('Export failed');
     }
   }
 
   /**
-   * Load model and data
+   * Import model from file
    */
-  async loadAll() {
-    const result = await this.trainer.loadAll();
-    if (result.modelLoaded) {
-      this.ui.setTrainingStatus('Loaded!');
-      this.ui.updateTrainingStats(this.dataRecorder.getDataSize(), null);
+  async importModel(file) {
+    this.ui.setTrainingStatus('Importing model...');
+    
+    const success = await this.autopilot.importFromFile(file);
+    if (success) {
+      this.ui.setTrainingStatus('Model imported!');
+      this.updateModelStatus();
     } else {
-      this.ui.setTrainingStatus('Load failed');
+      this.ui.setTrainingStatus('Import failed');
+    }
+  }
+
+  /**
+   * Update model status in UI
+   */
+  updateModelStatus() {
+    if (this.autopilot.isReady()) {
+      this.ui.setModelStatus('Ready');
+      this.ui.setAutopilotEnabled(true);
+    } else {
+      this.ui.setModelStatus('Not trained');
+      this.ui.setAutopilotEnabled(false);
     }
   }
 
@@ -325,6 +377,7 @@ class Simulation {
 
   /**
    * Get control commands based on current driver mode
+   * Returns { steering, throttle, actualMode }
    */
   getControlCommands() {
     if (this.driverMode === 'manual') {
@@ -337,9 +390,15 @@ class Simulation {
       if (this.manualInput.forward) throttle = 0.8;
       if (this.manualInput.brake) throttle = -1;
       
-      return { steering, throttle };
-    } else if (this.driverMode === 'autopilot' && this.autopilot.isReady()) {
-      // Neural network autopilot
+      return { steering, throttle, actualMode: 'manual' };
+    } else if (this.driverMode === 'autopilot') {
+      // Neural network autopilot - MUST have a ready model
+      if (!this.autopilot.isReady()) {
+        // This shouldn't happen if UI is working correctly
+        console.error('Autopilot selected but model not ready!');
+        return { steering: 0, throttle: 0, actualMode: 'stopped' };
+      }
+      
       const lidarDistances = this.lidar.getDistances();
       const vehicleState = this.car.getState();
       const routeState = {
@@ -348,10 +407,12 @@ class Simulation {
         targetDirection: this.controller.getTargetDirection(),
       };
       
-      return this.autopilot.predict(lidarDistances, vehicleState, routeState);
+      const prediction = this.autopilot.predict(lidarDistances, vehicleState, routeState);
+      return { ...prediction, actualMode: 'autopilot' };
     } else {
       // Classical controller
-      return this.controller.computeControl();
+      const control = this.controller.computeControl();
+      return { ...control, actualMode: 'classic' };
     }
   }
 
@@ -427,10 +488,17 @@ class Simulation {
       this.car.distanceTraveled
     );
     
+    // Show actual mode being used
+    const modeLabels = {
+      'autopilot': '🤖 Autopilot',
+      'manual': '🎮 Manual',
+      'classic': '🚗 Classic',
+      'stopped': '⚠️ Stopped',
+    };
+    
     this.ui.updateRouteProgress(
       this.routeManager.getProgress(),
-      this.driverMode === 'autopilot' ? 'Autopilot' : 
-      this.driverMode === 'manual' ? 'Manual' : 'Classic'
+      modeLabels[control.actualMode] || control.actualMode
     );
   }
 }

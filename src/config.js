@@ -9,8 +9,10 @@ export const CITY = {
   ROAD_WIDTH: 12,         // Width of roads in meters
   SIDEWALK_WIDTH: 3,      // Width of sidewalks in meters
   SIDEWALK_HEIGHT: 0.15,  // Height of sidewalks above road
-  BUILDING_MIN_HEIGHT: 15,
-  BUILDING_MAX_HEIGHT: 80,
+  STORY_HEIGHT: 3.5,        // Height per story in meters
+  BUILDING_MIN_STORIES: 1,
+  BUILDING_MAX_STORIES: 40,
+  BUILDING_MEDIAN_STORIES: 3, // Median for log-normal distribution
   BUILDING_MARGIN: 2,     // Gap between buildings and sidewalk
 };
 
@@ -20,11 +22,11 @@ export const VEHICLE = {
   WIDTH: 2.0,             // Car width in meters
   HEIGHT: 1.5,            // Car height in meters
   WHEELBASE: 2.7,         // Distance between axles
-  MAX_SPEED: 15,          // Maximum speed in m/s (~54 km/h)
-  MAX_ACCELERATION: 4.0,  // Maximum acceleration in m/s²
-  MAX_BRAKE: 8.0,         // Maximum braking deceleration
+  MAX_SPEED: 35,          // Maximum speed in m/s (~126 km/h)
+  MAX_ACCELERATION: 12.0, // Maximum acceleration in m/s²
+  MAX_BRAKE: 15.0,        // Maximum braking deceleration
   MAX_STEER_ANGLE: Math.PI / 4, // Maximum steering angle (45 degrees)
-  DRAG_COEFFICIENT: 0.02, // Air resistance
+  DRAG_COEFFICIENT: 0.01, // Air resistance (reduced)
 };
 
 // LiDAR configuration
@@ -56,11 +58,11 @@ export const AUTOPILOT = {
 
 // Classical controller (Pure Pursuit)
 export const CONTROLLER = {
-  LOOKAHEAD_MIN: 5,
-  LOOKAHEAD_MAX: 15,
-  LOOKAHEAD_GAIN: 0.5,    // Lookahead increases with speed
-  TARGET_SPEED: 8,        // Target cruising speed in m/s
-  TURN_SPEED: 4,          // Speed when turning
+  LOOKAHEAD_MIN: 8,
+  LOOKAHEAD_MAX: 25,
+  LOOKAHEAD_GAIN: 0.6,    // Lookahead increases with speed
+  TARGET_SPEED: 20,       // Target cruising speed in m/s
+  TURN_SPEED: 10,         // Speed when turning
 };
 
 // Colors
@@ -74,6 +76,10 @@ export const COLORS = {
   SKY: 0x0a0a15,
   CAR_BODY: 0xff4444,
   CAR_WINDOWS: 0x333333,
+  // Car colors for different modes
+  CAR_CLASSIC: 0x4488ff,    // Blue for classic controller
+  CAR_AUTOPILOT: 0x00ff88,  // Green for neural autopilot
+  CAR_MANUAL: 0xff8844,     // Orange for manual control
 };
 
 // Camera

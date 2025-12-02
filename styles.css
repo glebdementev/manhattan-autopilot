@@ -157,6 +157,31 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* Primary button (Instant Train) */
+button.primary {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.3), rgba(0, 200, 255, 0.2));
+  border: 1px solid #00ff88;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 10px 12px;
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+}
+
+button.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.5), rgba(0, 200, 255, 0.3));
+  box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
+  transform: translateY(-1px);
+}
+
+button.primary:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.instant-train {
+  margin-bottom: 12px;
+}
+
 /* Radio Groups */
 .radio-group {
   display: flex;

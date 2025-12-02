@@ -38,14 +38,15 @@ export class Car {
       VEHICLE.HEIGHT * 0.6,
       VEHICLE.LENGTH
     );
-    const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: COLORS.CAR_BODY,
+    this.bodyMaterial = new THREE.MeshStandardMaterial({
+      color: COLORS.CAR_CLASSIC,
       metalness: 0.6,
       roughness: 0.4,
     });
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    const body = new THREE.Mesh(bodyGeometry, this.bodyMaterial);
     body.position.y = VEHICLE.HEIGHT * 0.3;
     body.castShadow = true;
+    body.name = 'body';
     group.add(body);
     
     // Cabin
@@ -273,6 +274,31 @@ export class Car {
    */
   getMesh() {
     return this.mesh;
+  }
+
+  /**
+   * Set car body color based on driver mode
+   */
+  setMode(mode) {
+    let color;
+    switch (mode) {
+      case 'autopilot':
+        color = COLORS.CAR_AUTOPILOT;
+        break;
+      case 'manual':
+        color = COLORS.CAR_MANUAL;
+        break;
+      case 'classic':
+      default:
+        color = COLORS.CAR_CLASSIC;
+        break;
+    }
+    
+    if (this.bodyMaterial) {
+      this.bodyMaterial.color.setHex(color);
+      this.bodyMaterial.emissive.setHex(color);
+      this.bodyMaterial.emissiveIntensity = 0.1;
+    }
   }
 }
 
