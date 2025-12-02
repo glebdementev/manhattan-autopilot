@@ -51,21 +51,23 @@ export class RouteManager {
     const waypoints = [];
     
     for (let i = 0; i < nodePath.length - 1; i++) {
-      const fromNode = this.network.getNode(nodePath[i]);
-      const toNode = this.network.getNode(nodePath[i + 1]);
-      const edge = this.network.getEdge(nodePath[i], nodePath[i + 1]);
+      const fromNodeId = nodePath[i];
+      const toNodeId = nodePath[i + 1];
       
-      if (edge) {
+      // Get waypoints for the correct travel direction (on right side of road)
+      const edgeWaypoints = this.network.getDirectionalWaypoints(fromNodeId, toNodeId);
+      
+      if (edgeWaypoints && edgeWaypoints.length > 0) {
         // Add waypoints along this edge
         // Skip first waypoint to avoid duplicates (except for first edge)
         const startIdx = i === 0 ? 0 : 1;
         
-        for (let j = startIdx; j < edge.waypoints.length; j++) {
+        for (let j = startIdx; j < edgeWaypoints.length; j++) {
           waypoints.push({
-            x: edge.waypoints[j].x,
-            z: edge.waypoints[j].z,
-            isIntersection: j === 0 || j === edge.waypoints.length - 1,
-            nodeId: j === 0 ? nodePath[i] : (j === edge.waypoints.length - 1 ? nodePath[i + 1] : null),
+            x: edgeWaypoints[j].x,
+            z: edgeWaypoints[j].z,
+            isIntersection: j === 0 || j === edgeWaypoints.length - 1,
+            nodeId: j === 0 ? fromNodeId : (j === edgeWaypoints.length - 1 ? toNodeId : null),
           });
         }
       }

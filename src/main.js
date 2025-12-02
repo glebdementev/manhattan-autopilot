@@ -195,8 +195,9 @@ class Simulation {
         const dz = waypoints[1].z - waypoints[0].z;
         const heading = Math.atan2(dz, dx);
         
-        this.car.setPosition(startWp.x, startWp.z, heading);
+        // Reset car stats first, THEN set position (reset() resets position to 0,0)
         this.car.reset();
+        this.car.setPosition(startWp.x, startWp.z, heading);
         this.routeManager.reset();
         
         // Visualize route

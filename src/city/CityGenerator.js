@@ -247,43 +247,57 @@ export class CityGenerator {
   }
 
   /**
-   * Create a single building filling the entire block (inside sidewalks)
+   * Create a grid of buildings filling the entire block (inside sidewalks)
+   * Each block is divided into a 2-4 x 2-4 grid with no gaps between buildings
    */
   createBlockBuilding(blockX, blockZ, gridI, gridJ) {
-    // Building fills block inside sidewalks - no setback
+    // Building area fills block inside sidewalks - no setback
     const sw = CITY.SIDEWALK_WIDTH;
-    const buildingSize = CITY.BLOCK_SIZE - 2 * sw;
+    const totalSize = CITY.BLOCK_SIZE - 2 * sw;
     
     // Use deterministic random based on grid position
     const seed = gridI * 1000 + gridJ;
     const random = this.seededRandom(seed);
     
-    const height = CITY.BUILDING_MIN_HEIGHT + random() * (CITY.BUILDING_MAX_HEIGHT - CITY.BUILDING_MIN_HEIGHT);
-    const variation = random();
+    // Determine grid size (2-4 x 2-4)
+    const gridCountX = Math.floor(random() * 3) + 2; // 2, 3, or 4
+    const gridCountZ = Math.floor(random() * 3) + 2; // 2, 3, or 4
     
-    const geometry = new THREE.BoxGeometry(buildingSize, height, buildingSize);
-    const material = createBuildingMaterial(variation);
+    // Calculate individual building sizes (no gaps)
+    const buildingSizeX = totalSize / gridCountX;
+    const buildingSizeZ = totalSize / gridCountZ;
     
-    const building = new THREE.Mesh(geometry, material);
-    building.position.set(
-      blockX + sw + buildingSize / 2,
-      height / 2,
-      blockZ + sw + buildingSize / 2
-    );
-    building.castShadow = true;
-    building.receiveShadow = true;
-    building.name = 'building';
-    
-    this.buildingsGroup.add(building);
-    
-    // Add window strips
-    this.addBuildingWindows(building, buildingSize, height, random);
+    // Create buildings in the grid
+    for (let bi = 0; bi < gridCountX; bi++) {
+      for (let bj = 0; bj < gridCountZ; bj++) {
+        const height = CITY.BUILDING_MIN_HEIGHT + random() * (CITY.BUILDING_MAX_HEIGHT - CITY.BUILDING_MIN_HEIGHT);
+        const variation = random();
+        
+        const geometry = new THREE.BoxGeometry(buildingSizeX, height, buildingSizeZ);
+        const material = createBuildingMaterial(variation);
+        
+        const building = new THREE.Mesh(geometry, material);
+        building.position.set(
+          blockX + sw + bi * buildingSizeX + buildingSizeX / 2,
+          height / 2,
+          blockZ + sw + bj * buildingSizeZ + buildingSizeZ / 2
+        );
+        building.castShadow = true;
+        building.receiveShadow = true;
+        building.name = 'building';
+        
+        this.buildingsGroup.add(building);
+        
+        // Add window strips
+        this.addBuildingWindows(building, buildingSizeX, buildingSizeZ, height, random);
+      }
+    }
   }
 
   /**
    * Add window detail to building
    */
-  addBuildingWindows(building, size, height, random) {
+  addBuildingWindows(building, sizeX, sizeZ, height, random) {
     // Create window strips on the sides
     const windowMaterial = new THREE.MeshStandardMaterial({
       color: 0x88aacc,
@@ -293,24 +307,25 @@ export class CityGenerator {
     
     const floorHeight = 3.5;
     const numFloors = Math.floor(height / floorHeight);
-    const windowWidth = size * 0.7;
+    const windowWidthX = sizeX * 0.7; // For front/back faces
+    const windowWidthZ = sizeZ * 0.7; // For left/right faces
     const windowHeight = 1.5;
     
     for (let floor = 1; floor < numFloors; floor++) {
       const y = floor * floorHeight - height / 2 + 1;
       
-      // Front and back windows
-      [-size / 2 - 0.01, size / 2 + 0.01].forEach(zOffset => {
-        const geom = new THREE.PlaneGeometry(windowWidth, windowHeight);
+      // Front and back windows (along X axis)
+      [-sizeZ / 2 - 0.01, sizeZ / 2 + 0.01].forEach(zOffset => {
+        const geom = new THREE.PlaneGeometry(windowWidthX, windowHeight);
         const window = new THREE.Mesh(geom, windowMaterial);
         window.position.set(0, y, zOffset);
         if (zOffset < 0) window.rotation.y = Math.PI;
         building.add(window);
       });
       
-      // Left and right windows
-      [-size / 2 - 0.01, size / 2 + 0.01].forEach(xOffset => {
-        const geom = new THREE.PlaneGeometry(windowWidth, windowHeight);
+      // Left and right windows (along Z axis)
+      [-sizeX / 2 - 0.01, sizeX / 2 + 0.01].forEach(xOffset => {
+        const geom = new THREE.PlaneGeometry(windowWidthZ, windowHeight);
         const window = new THREE.Mesh(geom, windowMaterial);
         window.position.set(xOffset, y, 0);
         window.rotation.y = xOffset > 0 ? Math.PI / 2 : -Math.PI / 2;

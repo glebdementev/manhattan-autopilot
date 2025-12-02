@@ -29,7 +29,7 @@ export class RoadNetwork {
       });
     });
 
-    // Create edges
+    // Create edges (with waypoints for both directions)
     this.nodes.forEach((node, nodeId) => {
       node.neighbors.forEach(neighborId => {
         const edgeId = this.getEdgeId(nodeId, neighborId);
@@ -37,12 +37,16 @@ export class RoadNetwork {
           const neighbor = this.nodes.get(neighborId);
           const distance = this.calculateDistance(node, neighbor);
           
+          // Store waypoints for both travel directions (each on right side of road)
           this.edges.set(edgeId, {
             id: edgeId,
             from: nodeId,
             to: neighborId,
             distance,
-            waypoints: this.generateEdgeWaypoints(node, neighbor),
+            // Forward waypoints (from node -> neighbor)
+            forwardWaypoints: this.generateEdgeWaypoints(node, neighbor),
+            // Reverse waypoints (from neighbor -> node)
+            reverseWaypoints: this.generateEdgeWaypoints(neighbor, node),
           });
         }
       });
@@ -67,16 +71,39 @@ export class RoadNetwork {
 
   /**
    * Generate waypoints along an edge (for smoother path following)
+   * Waypoints are offset to the right side of the road for lane driving
    */
   generateEdgeWaypoints(fromNode, toNode) {
     const waypoints = [];
     const numPoints = 5; // Intermediate points
     
+    // Calculate direction vector
+    const dx = toNode.x - fromNode.x;
+    const dz = toNode.z - fromNode.z;
+    const length = Math.sqrt(dx * dx + dz * dz);
+    
+    if (length < 0.001) {
+      return [{ x: fromNode.x, z: fromNode.z }];
+    }
+    
+    // Normalize direction
+    const dirX = dx / length;
+    const dirZ = dz / length;
+    
+    // Calculate perpendicular vector (pointing to the right side of the road)
+    // For right-hand traffic: rotate direction 90 degrees clockwise
+    const perpX = -dirZ;
+    const perpZ = dirX;
+    
+    // Offset amount for the right lane
+    const offsetX = perpX * LANE_OFFSET;
+    const offsetZ = perpZ * LANE_OFFSET;
+    
     for (let i = 0; i <= numPoints; i++) {
       const t = i / numPoints;
       waypoints.push({
-        x: fromNode.x + (toNode.x - fromNode.x) * t,
-        z: fromNode.z + (toNode.z - fromNode.z) * t,
+        x: fromNode.x + dx * t + offsetX,
+        z: fromNode.z + dz * t + offsetZ,
       });
     }
     
@@ -103,6 +130,21 @@ export class RoadNetwork {
   getEdge(nodeA, nodeB) {
     const edgeId = this.getEdgeId(nodeA, nodeB);
     return this.edges.get(edgeId);
+  }
+
+  /**
+   * Get waypoints for traveling from nodeA to nodeB (on the correct side of road)
+   */
+  getDirectionalWaypoints(fromNodeId, toNodeId) {
+    const edge = this.getEdge(fromNodeId, toNodeId);
+    if (!edge) return [];
+    
+    // Check if we're going in the "forward" direction (matches stored from/to)
+    if (edge.from === fromNodeId) {
+      return edge.forwardWaypoints;
+    } else {
+      return edge.reverseWaypoints;
+    }
   }
 
   /**
@@ -151,4 +193,8 @@ export class RoadNetwork {
    * Check if two nodes are connected directly
    */
   areConnected(nodeAId, nodeBId) {
-    con
+    const nodeA = this.nodes.get(nodeAId);
+    return nodeA && nodeA.neighbors.includes(nodeBId);
+  }
+}
+
