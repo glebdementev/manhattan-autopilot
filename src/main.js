@@ -177,6 +177,7 @@ class Simulation {
     this.ui.on('instantTrain', () => this.instantTrain());
     this.ui.on('exportModel', () => this.exportModel());
     this.ui.on('importModel', (file) => this.importModel(file));
+    this.ui.on('downloadTrainingData', () => this.downloadTrainingData());
     
     // Keyboard input
     this.ui.on('keydown', (key) => this.handleKeyDown(key));
@@ -297,6 +298,31 @@ class Simulation {
     } else {
       this.ui.setTrainingStatus('Import failed');
     }
+  }
+
+  /**
+   * Download training data as JSON file
+   */
+  downloadTrainingData() {
+    const dataSize = this.dataRecorder.getDataSize();
+    if (dataSize === 0) {
+      this.ui.setTrainingStatus('No training data to download!');
+      return;
+    }
+    
+    const jsonData = this.dataRecorder.exportJSON();
+    const blob = new Blob([jsonData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `training-data-${dataSize}-samples.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    this.ui.setTrainingStatus(`Downloaded ${dataSize} samples`);
   }
 
   /**

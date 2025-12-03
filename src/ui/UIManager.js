@@ -111,6 +111,9 @@ export class UIManager {
             <button id="btn-export">Export Model</button>
             <button id="btn-import">Import Model</button>
           </div>
+          <div class="control-group">
+            <button id="btn-download-data">Download Training Data</button>
+          </div>
           <input type="file" id="model-file-input" accept=".json" style="display: none;">
           <div id="training-status"></div>
         </div>
@@ -151,6 +154,7 @@ export class UIManager {
       btnInstantTrain: document.getElementById('btn-instant-train'),
       btnExport: document.getElementById('btn-export'),
       btnImport: document.getElementById('btn-import'),
+      btnDownloadData: document.getElementById('btn-download-data'),
       modelFileInput: document.getElementById('model-file-input'),
       lidarToggle: document.getElementById('lidar-toggle'),
       autopilotRadio: document.querySelector('input[name="driver-mode"][value="autopilot"]'),
@@ -183,6 +187,10 @@ export class UIManager {
     
     this.elements.btnImport.addEventListener('click', () => {
       this.elements.modelFileInput.click();
+    });
+    
+    this.elements.btnDownloadData.addEventListener('click', () => {
+      this.emit('downloadTrainingData');
     });
     
     this.elements.modelFileInput.addEventListener('change', (e) => {
