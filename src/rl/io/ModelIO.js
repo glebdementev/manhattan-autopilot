@@ -3,7 +3,6 @@
  * Handles saving and loading trained models
  */
 
-import * as tf from '@tensorflow/tfjs';
 import { RL_CONFIG } from '../../config.js';
 
 export class ModelIO {
@@ -16,7 +15,6 @@ export class ModelIO {
    * @param {number} explorationRate - Current exploration rate
    * @param {number} observationSize - Observation size
    * @param {number} actionSize - Action size
-   * @param {number} heuristicWeight - Current heuristic blending weight
    * @returns {Promise<boolean>} - Success status
    */
   static async exportToFile(
@@ -26,8 +24,7 @@ export class ModelIO {
     trainingStep,
     explorationRate,
     observationSize,
-    actionSize,
-    heuristicWeight = 0.7
+    actionSize
   ) {
     if (!policyNetwork || !valueNetwork) {
       console.warn('No model to export');
@@ -36,7 +33,7 @@ export class ModelIO {
     
     try {
       const exportData = {
-        version: 2,
+        version: 3,
         type: 'drone-rl-agent',
         timestamp: Date.now(),
         config: {
@@ -49,7 +46,6 @@ export class ModelIO {
         trainingHistory,
         trainingStep,
         explorationRate,
-        heuristicWeight,
       };
       
       const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
@@ -102,7 +98,6 @@ export class ModelIO {
         trainingHistory: importData.trainingHistory || {},
         trainingStep: importData.trainingStep || 0,
         explorationRate: importData.explorationRate || RL_CONFIG.INITIAL_EXPLORATION,
-        heuristicWeight: importData.heuristicWeight,
         config: importData.config || {},
       };
     } catch (error) {
@@ -138,4 +133,3 @@ export class ModelIO {
     return JSON.parse(text);
   }
 }
-

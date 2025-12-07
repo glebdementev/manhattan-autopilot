@@ -1,7 +1,8 @@
 /**
  * 3D LiDAR sensor simulation for drone navigation
  * Features:
- * - Horizontal sweep rays for obstacle detection
+ * - Dense horizontal sweep for obstacle detection
+ * - Returns N closest obstacles with direction + distance (min angular separation)
  * - Nadir (downward) and zenith (upward) rays for altitude awareness
  */
 import * as THREE from 'three';
@@ -16,18 +17,25 @@ export class Lidar {
     // Raycast targets (set externally)
     this.raycastTargets = [];
     
-    // Calculate total rays: grid rays + nadir + zenith
-    this.numGridRays = LIDAR.NUM_HORIZONTAL_RAYS * LIDAR.NUM_VERTICAL_RAYS;
+    // Dense scan rays for obstacle detection
+    this.numScanRays = LIDAR.NUM_SCAN_RAYS;
     this.numSpecialRays = 2; // nadir + zenith
-    this.numRays = this.numGridRays + this.numSpecialRays;
+    this.numRays = this.numScanRays + this.numSpecialRays;
     
     // Ray indices for special rays
-    this.nadirIndex = this.numGridRays;     // Straight down
-    this.zenithIndex = this.numGridRays + 1; // Straight up
+    this.nadirIndex = this.numScanRays;     // Straight down
+    this.zenithIndex = this.numScanRays + 1; // Straight up
     
-    // Store latest readings
+    // Closest obstacles output config
+    this.numClosestObstacles = LIDAR.NUM_CLOSEST_OBSTACLES;
+    this.minAngularSeparation = LIDAR.MIN_ANGULAR_SEPARATION;
+    
+    // Store latest raw readings (all scan rays)
     this.distances = new Array(this.numRays).fill(LIDAR.MAX_RANGE);
     this.hitPoints = [];
+    
+    // Store closest obstacles: [{angle, distance}, ...]
+    this.closestObstacles = [];
     
     // Pre-calculate ray directions (in local drone space)
     this.rayDirections = this.calculateRayDirections();
@@ -94,36 +102,23 @@ export class Lidar {
 
   /**
    * Calculate all ray directions (in local drone space)
-   * Includes grid rays + nadir + zenith
+   * Dense horizontal sweep + nadir + zenith
    */
   calculateRayDirections() {
     const directions = [];
     
     const hFov = LIDAR.HORIZONTAL_FOV;
-    const vFov = LIDAR.VERTICAL_FOV;
-    const numH = LIDAR.NUM_HORIZONTAL_RAYS;
-    const numV = LIDAR.NUM_VERTICAL_RAYS;
+    const numScan = this.numScanRays;
     
-    // Grid rays (horizontal sweep with vertical layers)
-    for (let v = 0; v < numV; v++) {
-      // Spread vertical angles evenly within FOV
-      const verticalAngle = -vFov / 2 + (v / Math.max(numV - 1, 1)) * vFov;
+    // Dense horizontal scan rays (single vertical layer at horizon)
+    for (let i = 0; i < numScan; i++) {
+      const horizontalAngle = -hFov / 2 + (i / Math.max(numScan - 1, 1)) * hFov;
       
-      for (let h = 0; h < numH; h++) {
-        // Spread horizontal angles evenly within FOV
-        const horizontalAngle = -hFov / 2 + (h / Math.max(numH - 1, 1)) * hFov;
-        
-        const cosV = Math.cos(verticalAngle);
-        const sinV = Math.sin(verticalAngle);
-        const cosH = Math.cos(horizontalAngle);
-        const sinH = Math.sin(horizontalAngle);
-        
-        directions.push(new THREE.Vector3(
-          sinH * cosV,
-          sinV,
-          cosH * cosV
-        ).normalize());
-      }
+      directions.push(new THREE.Vector3(
+        Math.sin(horizontalAngle),
+        0, // Horizontal plane only
+        Math.cos(horizontalAngle)
+      ).normalize());
     }
     
     // Nadir ray (straight down)
@@ -134,25 +129,35 @@ export class Lidar {
     
     return directions;
   }
+  
+  /**
+   * Calculate horizontal angle for a ray index (in local space)
+   */
+  getRayAngle(rayIndex) {
+    if (rayIndex >= this.numScanRays) return null; // Special rays
+    const hFov = LIDAR.HORIZONTAL_FOV;
+    return -hFov / 2 + (rayIndex / Math.max(this.numScanRays - 1, 1)) * hFov;
+  }
 
   /**
    * Setup efficient visualization using single geometries
    */
   setupVisualization() {
-    // Create ray lines as a single LineSegments geometry (much more efficient)
-    // Each ray needs 2 vertices (start and end)
-    const rayPositions = new Float32Array(this.numRays * 2 * 3);
-    const rayColors = new Float32Array(this.numRays * 2 * 3);
+    // Create ray lines for the closest obstacles only (much more efficient)
+    // Each closest obstacle needs 2 vertices (start and end)
+    const numVisualRays = this.numClosestObstacles + this.numSpecialRays;
+    const rayPositions = new Float32Array(numVisualRays * 2 * 3);
+    const rayColors = new Float32Array(numVisualRays * 2 * 3);
     
     // Initialize colors
     const rayColor = new THREE.Color(LIDAR.RAY_COLOR);
     const nadirColor = new THREE.Color(0x00ffff); // Cyan for nadir
     const zenithColor = new THREE.Color(0xffff00); // Yellow for zenith
     
-    for (let i = 0; i < this.numRays; i++) {
+    for (let i = 0; i < numVisualRays; i++) {
       let color = rayColor;
-      if (i === this.nadirIndex) color = nadirColor;
-      else if (i === this.zenithIndex) color = zenithColor;
+      if (i === this.numClosestObstacles) color = nadirColor;
+      else if (i === this.numClosestObstacles + 1) color = zenithColor;
       
       // Start vertex color
       rayColors[i * 6 + 0] = color.r;
@@ -183,7 +188,7 @@ export class Lidar {
       color: LIDAR.HIT_COLOR,
     });
     
-    this.hitSpheres = new THREE.InstancedMesh(sphereGeometry, sphereMaterial, this.numRays);
+    this.hitSpheres = new THREE.InstancedMesh(sphereGeometry, sphereMaterial, numVisualRays);
     this.hitSpheres.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.visualGroup.add(this.hitSpheres);
     
@@ -207,6 +212,7 @@ export class Lidar {
 
   /**
    * Perform 3D LiDAR scan using Three.js raycasting
+   * Returns the N closest obstacles with minimum angular separation
    */
   scan() {
     this.hitPoints = [];
@@ -221,10 +227,10 @@ export class Lidar {
     
     this._origin.set(droneX, droneY, droneZ);
     
-    // Get visualization arrays if enabled
-    const shouldVisualize = this.visualizationEnabled;
-    const rayPositions = shouldVisualize ? this.rayLines.geometry.attributes.position.array : null;
+    // Collect all horizontal hits with angles
+    const horizontalHits = [];
     
+    // Scan all rays
     for (let i = 0; i < this.numRays; i++) {
       const localDir = this.rayDirections[i];
       
@@ -263,68 +269,190 @@ export class Lidar {
           isNadir: i === this.nadirIndex,
           isZenith: i === this.zenithIndex,
         });
+        
+        // Collect horizontal hits for closest obstacle selection
+        if (i < this.numScanRays) {
+          const angle = this.getRayAngle(i);
+          horizontalHits.push({
+            angle,
+            distance: hitDistance,
+            rayIndex: i,
+            hitPoint: hitPoint.clone(),
+            worldDir: this._direction.clone(),
+          });
+        }
       }
       
       this.distances[i] = hitDistance;
+    }
+    
+    // Find N closest obstacles with minimum angular separation
+    this.closestObstacles = this.findClosestObstacles(horizontalHits);
+    
+    // Update visualization
+    this.updateVisualization(droneX, droneY, droneZ);
+    
+    return this.distances;
+  }
+  
+  /**
+   * Find N closest obstacles with minimum angular separation
+   * @param {Array} hits - All horizontal hits with angle and distance
+   * @returns {Array} - N closest obstacles [{angle, distance, dirX, dirZ}, ...]
+   */
+  findClosestObstacles(hits) {
+    if (hits.length === 0) {
+      // No obstacles - return empty slots
+      return Array(this.numClosestObstacles).fill(null).map(() => ({
+        angle: 0,
+        distance: LIDAR.MAX_RANGE,
+        dirX: 0,
+        dirZ: 1,
+        hitPoint: null,
+      }));
+    }
+    
+    // Sort by distance (closest first)
+    const sortedHits = [...hits].sort((a, b) => a.distance - b.distance);
+    
+    const selected = [];
+    const minSepRad = this.minAngularSeparation;
+    
+    for (const hit of sortedHits) {
+      if (selected.length >= this.numClosestObstacles) break;
       
-      // Update visualization
-      if (shouldVisualize) {
-        // Calculate end point
-        if (hitPoint) {
-          this._endPoint.copy(hitPoint);
-        } else {
-          this._endPoint.set(
-            droneX + this._direction.x * LIDAR.MAX_RANGE,
-            droneY + this._direction.y * LIDAR.MAX_RANGE,
-            droneZ + this._direction.z * LIDAR.MAX_RANGE
-          );
+      // Check angular separation from already selected obstacles
+      let tooClose = false;
+      for (const sel of selected) {
+        const angleDiff = Math.abs(this.normalizeAngle(hit.angle - sel.angle));
+        if (angleDiff < minSepRad) {
+          tooClose = true;
+          break;
         }
-        
-        // Update ray line (start and end vertices)
-        const rayIdx = i * 6;
-        rayPositions[rayIdx + 0] = droneX;
-        rayPositions[rayIdx + 1] = droneY;
-        rayPositions[rayIdx + 2] = droneZ;
-        rayPositions[rayIdx + 3] = this._endPoint.x;
-        rayPositions[rayIdx + 4] = this._endPoint.y;
-        rayPositions[rayIdx + 5] = this._endPoint.z;
-        
-        // Update hit sphere position
-        if (i === this.nadirIndex) {
-          if (hitPoint) {
-            this.nadirSphere.position.set(hitPoint.x, hitPoint.y, hitPoint.z);
-            this.nadirSphere.visible = true;
-          } else {
-            this.nadirSphere.visible = false;
-          }
-        } else if (i === this.zenithIndex) {
-          if (hitPoint) {
-            this.zenithSphere.position.set(hitPoint.x, hitPoint.y, hitPoint.z);
-            this.zenithSphere.visible = true;
-          } else {
-            this.zenithSphere.visible = false;
-          }
-        } else {
-          if (hitPoint) {
-            this._instanceMatrix.setPosition(hitPoint.x, hitPoint.y, hitPoint.z);
-          } else {
-            this._instanceMatrix.setPosition(this._hiddenPosition.x, this._hiddenPosition.y, this._hiddenPosition.z);
-          }
-          this.hitSpheres.setMatrixAt(i, this._instanceMatrix);
-        }
+      }
+      
+      if (!tooClose) {
+        // Calculate local direction (normalized)
+        const localDir = this.rayDirections[hit.rayIndex];
+        selected.push({
+          angle: hit.angle,
+          distance: hit.distance,
+          dirX: localDir.x, // Local X component (right is positive)
+          dirZ: localDir.z, // Local Z component (forward is positive)
+          hitPoint: hit.hitPoint,
+          worldDir: hit.worldDir,
+        });
       }
     }
     
-    // Mark geometries as needing update
-    if (shouldVisualize) {
-      this.rayLines.geometry.attributes.position.needsUpdate = true;
-      this.hitSpheres.instanceMatrix.needsUpdate = true;
-      
-      // Update target line
-      this.updateTargetLine(droneX, droneY, droneZ);
+    // Fill remaining slots with max-range "no obstacle" entries
+    while (selected.length < this.numClosestObstacles) {
+      selected.push({
+        angle: 0,
+        distance: LIDAR.MAX_RANGE,
+        dirX: 0,
+        dirZ: 1,
+        hitPoint: null,
+      });
     }
     
-    return this.distances;
+    return selected;
+  }
+  
+  /**
+   * Normalize angle to [-PI, PI]
+   */
+  normalizeAngle(angle) {
+    while (angle > Math.PI) angle -= 2 * Math.PI;
+    while (angle < -Math.PI) angle += 2 * Math.PI;
+    return angle;
+  }
+  
+  /**
+   * Update visualization for closest obstacles
+   */
+  updateVisualization(droneX, droneY, droneZ) {
+    const shouldVisualize = this.visualizationEnabled;
+    if (!shouldVisualize) return;
+    
+    const rayPositions = this.rayLines.geometry.attributes.position.array;
+    const droneYaw = this.drone.yaw;
+    const cosYaw = Math.cos(droneYaw);
+    const sinYaw = Math.sin(droneYaw);
+    
+    // Visualize closest obstacles
+    for (let i = 0; i < this.numClosestObstacles; i++) {
+      const obs = this.closestObstacles[i];
+      const rayIdx = i * 6;
+      
+      // Start at drone
+      rayPositions[rayIdx + 0] = droneX;
+      rayPositions[rayIdx + 1] = droneY;
+      rayPositions[rayIdx + 2] = droneZ;
+      
+      if (obs && obs.hitPoint) {
+        // End at hit point
+        rayPositions[rayIdx + 3] = obs.hitPoint.x;
+        rayPositions[rayIdx + 4] = obs.hitPoint.y;
+        rayPositions[rayIdx + 5] = obs.hitPoint.z;
+        
+        // Update hit sphere
+        this._instanceMatrix.setPosition(obs.hitPoint.x, obs.hitPoint.y, obs.hitPoint.z);
+      } else {
+        // No obstacle - extend to max range in forward direction
+        rayPositions[rayIdx + 3] = droneX + cosYaw * LIDAR.MAX_RANGE;
+        rayPositions[rayIdx + 4] = droneY;
+        rayPositions[rayIdx + 5] = droneZ + sinYaw * LIDAR.MAX_RANGE;
+        
+        this._instanceMatrix.setPosition(this._hiddenPosition.x, this._hiddenPosition.y, this._hiddenPosition.z);
+      }
+      this.hitSpheres.setMatrixAt(i, this._instanceMatrix);
+    }
+    
+    // Visualize nadir ray
+    const nadirVisIdx = this.numClosestObstacles;
+    rayPositions[nadirVisIdx * 6 + 0] = droneX;
+    rayPositions[nadirVisIdx * 6 + 1] = droneY;
+    rayPositions[nadirVisIdx * 6 + 2] = droneZ;
+    
+    const nadirDist = this.distances[this.nadirIndex];
+    const nadirHit = nadirDist < LIDAR.MAX_RANGE;
+    rayPositions[nadirVisIdx * 6 + 3] = droneX;
+    rayPositions[nadirVisIdx * 6 + 4] = droneY - nadirDist;
+    rayPositions[nadirVisIdx * 6 + 5] = droneZ;
+    
+    if (nadirHit) {
+      this.nadirSphere.position.set(droneX, droneY - nadirDist, droneZ);
+      this.nadirSphere.visible = true;
+    } else {
+      this.nadirSphere.visible = false;
+    }
+    
+    // Visualize zenith ray
+    const zenithVisIdx = this.numClosestObstacles + 1;
+    rayPositions[zenithVisIdx * 6 + 0] = droneX;
+    rayPositions[zenithVisIdx * 6 + 1] = droneY;
+    rayPositions[zenithVisIdx * 6 + 2] = droneZ;
+    
+    const zenithDist = this.distances[this.zenithIndex];
+    const zenithHit = zenithDist < LIDAR.MAX_RANGE;
+    rayPositions[zenithVisIdx * 6 + 3] = droneX;
+    rayPositions[zenithVisIdx * 6 + 4] = droneY + zenithDist;
+    rayPositions[zenithVisIdx * 6 + 5] = droneZ;
+    
+    if (zenithHit) {
+      this.zenithSphere.position.set(droneX, droneY + zenithDist, droneZ);
+      this.zenithSphere.visible = true;
+    } else {
+      this.zenithSphere.visible = false;
+    }
+    
+    // Mark geometries as needing update
+    this.rayLines.geometry.attributes.position.needsUpdate = true;
+    this.hitSpheres.instanceMatrix.needsUpdate = true;
+    
+    // Update target line
+    this.updateTargetLine(droneX, droneY, droneZ);
   }
   
   /**
@@ -378,14 +506,38 @@ export class Lidar {
   }
 
   /**
-   * Get normalized distances (0-1 range)
+   * Get closest obstacles data for RL observation
+   * Returns flat array: [dirX1, dirZ1, dist1, dirX2, dirZ2, dist2, ...]
+   * Directions are normalized local coordinates
+   * Distances are normalized to [0, 1]
+   */
+  getClosestObstaclesFlat() {
+    const result = [];
+    for (const obs of this.closestObstacles) {
+      result.push(obs.dirX);           // Local X direction
+      result.push(obs.dirZ);           // Local Z direction
+      result.push(obs.distance / LIDAR.MAX_RANGE); // Normalized distance
+    }
+    return result;
+  }
+  
+  /**
+   * Get closest obstacles as objects
+   * @returns {Array} - [{angle, distance, dirX, dirZ}, ...]
+   */
+  getClosestObstacles() {
+    return this.closestObstacles;
+  }
+
+  /**
+   * Get normalized distances (0-1 range) - legacy, returns all scan rays
    */
   getNormalizedDistances() {
     return this.distances.map(d => d / LIDAR.MAX_RANGE);
   }
 
   /**
-   * Get raw distances
+   * Get raw distances - legacy, returns all scan rays
    */
   getDistances() {
     return this.distances;
@@ -413,30 +565,29 @@ export class Lidar {
   }
 
   /**
-   * Get minimum distance across all rays
+   * Get minimum distance across all horizontal rays
    */
   getMinDistance() {
-    return Math.min(...this.distances);
+    let min = LIDAR.MAX_RANGE;
+    for (let i = 0; i < this.numScanRays; i++) {
+      if (this.distances[i] < min) min = this.distances[i];
+    }
+    return min;
   }
 
   /**
    * Get minimum distance in forward direction (center rays)
    */
   getForwardMinDistance() {
-    const numH = LIDAR.NUM_HORIZONTAL_RAYS;
-    const numV = LIDAR.NUM_VERTICAL_RAYS;
+    const numScan = this.numScanRays;
+    const hCenter = Math.floor(numScan / 2);
+    const hRange = Math.max(1, Math.floor(numScan / 8)); // Check ~25% of rays around center
     
     let minDist = LIDAR.MAX_RANGE;
-    const hCenter = Math.floor(numH / 2);
-    const hRange = Math.max(1, Math.floor(numH / 4));
-    
-    for (let v = 0; v < numV; v++) {
-      for (let h = hCenter - hRange; h <= hCenter + hRange; h++) {
-        if (h >= 0 && h < numH) {
-          const idx = v * numH + h;
-          if (this.distances[idx] < minDist) {
-            minDist = this.distances[idx];
-          }
+    for (let h = hCenter - hRange; h <= hCenter + hRange; h++) {
+      if (h >= 0 && h < numScan) {
+        if (this.distances[h] < minDist) {
+          minDist = this.distances[h];
         }
       }
     }
@@ -477,10 +628,10 @@ export class Lidar {
   }
 
   /**
-   * Get number of grid rays (excluding nadir/zenith)
+   * Get number of scan rays (excluding nadir/zenith)
    */
-  getNumGridRays() {
-    return this.numGridRays;
+  getNumScanRays() {
+    return this.numScanRays;
   }
 
   /**
@@ -488,5 +639,12 @@ export class Lidar {
    */
   getNumRays() {
     return this.numRays;
+  }
+  
+  /**
+   * Get number of closest obstacles tracked
+   */
+  getNumClosestObstacles() {
+    return this.numClosestObstacles;
   }
 }

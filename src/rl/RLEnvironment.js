@@ -175,7 +175,10 @@ export class RLEnvironment {
    */
   getObservation() {
     const state = this.drone.getState();
-    const lidarDistances = this.lidar.getDistances();
+    // Get closest obstacles data (flat array: [dirX1, dirZ1, dist1, ...])
+    const closestObstaclesFlat = this.lidar.getClosestObstaclesFlat();
+    const nadirDist = this.lidar.getNadirDistance();
+    const zenithDist = this.lidar.getZenithDistance();
     // Use LOCAL coordinates for target direction (matches local thrust controls)
     const targetDir = this.getTargetDirection();
     const distToTarget = this.getDistanceToTarget();
@@ -183,7 +186,9 @@ export class RLEnvironment {
     
     return this.observationBuilder.build(
       state,
-      lidarDistances,
+      closestObstaclesFlat,
+      nadirDist,
+      zenithDist,
       targetDir,
       distToTarget,
       canSee
@@ -197,8 +202,8 @@ export class RLEnvironment {
     const state = this.drone.getState();
     const currentDist = this.getDistanceToTarget();
     const minLidarDist = this.lidar.getMinDistance();
-    const lidarDistances = this.lidar.getDistances(); // All lidar rays for comprehensive proximity check
-    const numGridRays = this.lidar.getNumGridRays(); // Horizontal rays only (excludes nadir/zenith)
+    const lidarDistances = this.lidar.getDistances(); // All scan rays
+    const numScanRays = this.lidar.getNumScanRays(); // Horizontal rays only (excludes nadir/zenith)
     const nadirDistance = this.lidar.getNadirDistance();
     const targetDirWorld = this.getTargetDirectionWorld();
     const terrainHeight = this.forest.getTerrainHeight(state.x, state.z);
@@ -210,7 +215,7 @@ export class RLEnvironment {
       hadCollision: this.drone.hadCollision(),
       minLidarDist,
       lidarDistances,
-      numGridRays,
+      numScanRays,
       nadirDistance,
       droneState: state,
       targetDirWorld,

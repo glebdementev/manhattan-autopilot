@@ -5,11 +5,13 @@
  * ALL values are in LOCAL coordinates (relative to drone facing direction)
  * 
  * Observation Space:
- * - Lidar distances (normalized 0-1): in local coords (forward = +X)
- * - Velocity (normalized, LOCAL coords): vx (forward), vy (right), vz (up)
- * - Target direction (unit vector, LOCAL coords): dx (forward), dy (right), dz (up)
- * - Distance to target (normalized): 1 value
- * - Can see target: 1 value (binary)
+ * - Closest obstacles (4): each has [dirX, dirZ, distance] in local coords
+ * - Nadir distance (1): normalized ground distance
+ * - Zenith distance (1): normalized ceiling distance
+ * - Velocity (3, LOCAL coords): vx (forward), vy (right), vz (up)
+ * - Target direction (3, LOCAL coords): dx (forward), dy (right), dz (up)
+ * - Distance to target (1): normalized
+ * - Can see target (1): binary
  * 
  * This matches the LOCAL coordinate action space:
  * - thrustX > 0 = forward, thrustY > 0 = right, thrustZ > 0 = up
@@ -19,24 +21,32 @@ import { LIDAR, DRONE, RL_CONFIG } from '../../config.js';
 
 export class ObservationBuilder {
   constructor() {
-    // Grid rays + nadir + zenith
-    this.numLidarRays = LIDAR.NUM_HORIZONTAL_RAYS * LIDAR.NUM_VERTICAL_RAYS + 2;
-    // lidar + velocity(3) + target_dir(3) + distance(1) + can_see(1)
-    this.observationSize = this.numLidarRays + 3 + 3 + 1 + 1;
+    // Closest obstacles: 4 * 3 (dirX, dirZ, dist) = 12
+    this.numClosestObstacles = LIDAR.NUM_CLOSEST_OBSTACLES;
+    this.obstacleDataSize = this.numClosestObstacles * 3;
+    
+    // Special rays: nadir + zenith
+    this.numSpecialRays = 2;
+    
+    // Total: obstacles(12) + special(2) + velocity(3) + target_dir(3) + distance(1) + can_see(1) = 22
+    this.observationSize = this.obstacleDataSize + this.numSpecialRays + 3 + 3 + 1 + 1;
   }
   
   /**
    * Build observation vector (all in LOCAL coordinates)
    * @param {Object} droneState - Drone state with localVx, localVy, localVz
-   * @param {Array} lidarDistances - Array of lidar distance readings (already in local coords)
+   * @param {Array} closestObstaclesFlat - Flat array [dirX1, dirZ1, dist1, ...] from lidar
+   * @param {number} nadirDist - Nadir (ground) distance
+   * @param {number} zenithDist - Zenith (ceiling) distance
    * @param {Object} targetDir - Target direction in LOCAL coords { x, y, z }
    * @param {number} distToTarget - Distance to target
    * @param {boolean} canSeeTarget - Whether target is visible
    * @returns {Array} - Observation vector
    */
-  build(droneState, lidarDistances, targetDir, distToTarget, canSeeTarget) {
-    // Normalize lidar distances (already in local coords from Lidar)
-    const normalizedLidar = lidarDistances.map(d => d / LIDAR.MAX_RANGE);
+  build(droneState, closestObstaclesFlat, nadirDist, zenithDist, targetDir, distToTarget, canSeeTarget) {
+    // Normalize special ray distances
+    const normalizedNadir = nadirDist / LIDAR.MAX_RANGE;
+    const normalizedZenith = zenithDist / LIDAR.MAX_RANGE;
     
     // Normalize LOCAL velocity
     const normalizedVel = [
@@ -53,13 +63,15 @@ export class ObservationBuilder {
     
     // Combine all observations (all in LOCAL coords)
     return [
-      ...normalizedLidar,
-      ...normalizedVel,
-      targetDir.x,  // Local X: target is forward (+) or behind (-)
-      targetDir.y,  // Local Y: target is right (+) or left (-)
-      targetDir.z,  // Local Z: target is above (+) or below (-)
-      normalizedDist,
-      canSee,
+      ...closestObstaclesFlat, // 4 obstacles * 3 values = 12
+      normalizedNadir,         // Ground distance
+      normalizedZenith,        // Ceiling distance
+      ...normalizedVel,        // 3 velocity components
+      targetDir.x,             // Local X: target is forward (+) or behind (-)
+      targetDir.y,             // Local Y: target is right (+) or left (-)
+      targetDir.z,             // Local Z: target is above (+) or below (-)
+      normalizedDist,          // Distance to target
+      canSee,                  // Can see target
     ];
   }
   
@@ -71,7 +83,9 @@ export class ObservationBuilder {
     return {
       size: this.observationSize,
       breakdown: {
-        lidar: this.numLidarRays,
+        closestObstacles: this.obstacleDataSize,
+        nadir: 1,
+        zenith: 1,
         velocity: 3,
         targetDirection: 3,
         targetDistance: 1,
@@ -88,4 +102,3 @@ export class ObservationBuilder {
     return this.observationSize;
   }
 }
-

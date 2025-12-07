@@ -47,16 +47,16 @@ export const DRONE = {
   VERTICAL_SPEED: 4,      // Vertical movement speed
 };
 
-// LiDAR configuration - OPTIMIZED
+// LiDAR configuration - CLOSEST OBSTACLES MODE
 export const LIDAR = {
-  NUM_HORIZONTAL_RAYS: 16,  // 16 horizontal rays
-  NUM_VERTICAL_RAYS: 1,     // Single vertical layer = 16 total rays
-  HORIZONTAL_FOV: Math.PI * 1.5, // 270 degrees horizontal
-  VERTICAL_FOV: 0,                // No vertical spread (single layer)
-  MAX_RANGE: 25,            // Reduced range
-  VISUALIZE: false,         // DISABLED by default for performance
-  RAY_COLOR: 0x00ffaa,      // Color of LiDAR rays
-  HIT_COLOR: 0xff4444,      // Color of hit points
+  NUM_SCAN_RAYS: 72,              // Dense scan (5° per ray for 360° coverage)
+  HORIZONTAL_FOV: Math.PI * 2,    // 360 degrees horizontal scan
+  NUM_CLOSEST_OBSTACLES: 4,       // Return 4 closest obstacles
+  MIN_ANGULAR_SEPARATION: Math.PI / 18, // 10 degrees minimum between obstacles
+  MAX_RANGE: 25,                  // Maximum detection range
+  VISUALIZE: false,               // DISABLED by default for performance
+  RAY_COLOR: 0x00ffaa,            // Color of LiDAR rays
+  HIT_COLOR: 0xff4444,            // Color of hit points
 };
 
 // Simulation
@@ -65,9 +65,10 @@ export const SIMULATION = {
   RENDER_FPS: 60,         // Target render framerate
 };
 
-// Autopilot neural network - ADJUSTED for new LiDAR size
+// Autopilot neural network - ADJUSTED for closest obstacles LiDAR
 export const AUTOPILOT = {
-  INPUT_SIZE: 16 * 4 + 2 + 6, // LiDAR grid rays (64) + nadir/zenith (2) + [vx, vy, vz, target_dx, target_dy, target_dz]
+  // 4 closest obstacles * 3 (dirX, dirZ, dist) + nadir/zenith (2) + velocity (3) + target_dir (3) + dist (1) + can_see (1)
+  INPUT_SIZE: 4 * 3 + 2 + 3 + 3 + 1 + 1, // = 22
   HIDDEN_LAYERS: [64, 32],  // Smaller network
   OUTPUT_SIZE: 3,         // [thrust_x, thrust_y, thrust_z]
   LEARNING_RATE: 0.001,
@@ -180,13 +181,6 @@ export const RL_CONFIG = {
   EXPLORATION_DECAY: 0.9995,    // Exploration decay per training step
   MIN_EXPLORATION: 0.05,        // Minimum exploration rate
   ACTION_NOISE: 0.3,            // Noise added to actions during exploration
-  
-  // ===========================================
-  // HEURISTIC BLENDING (disabled - user teaches from scratch)
-  // ===========================================
-  INITIAL_HEURISTIC_WEIGHT: 0.0,  // Start with 0% heuristic - RL must learn from user demonstrations
-  MIN_HEURISTIC_WEIGHT: 0.0,      // No heuristic safety net
-  HEURISTIC_DECAY: 1.0,           // No decay needed
   
   // ===========================================
   // TRAINING CONTROL
