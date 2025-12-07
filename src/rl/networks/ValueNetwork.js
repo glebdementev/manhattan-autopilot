@@ -1,6 +1,8 @@
 /**
  * Value Network (Critic) for RL Agent
  * Estimates state value for advantage calculation
+ * 
+ * SIMPLIFIED: Smaller network for easier training
  */
 
 import * as tf from '@tensorflow/tfjs';
@@ -21,51 +23,51 @@ export class ValueNetwork {
    * Build the value network architecture
    */
   build() {
-    this.model = tf.sequential({
-      layers: [
-        tf.layers.dense({
-          inputShape: [this.observationSize],
-          units: RL_CONFIG.HIDDEN_UNITS[0],
-          activation: 'relu',
-          kernelInitializer: 'heNormal',
-        }),
-        tf.layers.dense({
-          units: RL_CONFIG.HIDDEN_UNITS[1],
-          activation: 'relu',
-          kernelInitializer: 'heNormal',
-        }),
-        tf.layers.dense({
-          units: 1,
-          activation: 'linear',
-          kernelInitializer: 'glorotNormal',
-        }),
-      ],
-    });
+    const layers = [
+      tf.layers.dense({
+        inputShape: [this.observationSize],
+        units: RL_CONFIG.HIDDEN_UNITS[0],
+        activation: 'relu',
+        kernelInitializer: 'heNormal',
+      }),
+    ];
+    
+    // Add remaining hidden layers (use fewer for value network)
+    for (let i = 1; i < Math.min(2, RL_CONFIG.HIDDEN_UNITS.length); i++) {
+      layers.push(tf.layers.dense({
+        units: RL_CONFIG.HIDDEN_UNITS[i],
+        activation: 'relu',
+        kernelInitializer: 'heNormal',
+      }));
+    }
+    
+    // Output layer (single value)
+    layers.push(tf.layers.dense({
+      units: 1,
+      activation: 'linear',
+      kernelInitializer: 'glorotNormal',
+    }));
+    
+    this.model = tf.sequential({ layers });
     
     this.model.compile({
-      optimizer: tf.train.adam(RL_CONFIG.LEARNING_RATE * 2),
+      optimizer: tf.train.adam(RL_CONFIG.LEARNING_RATE),
       loss: 'meanSquaredError',
     });
   }
   
   /**
    * Predict value from observation
-   * OPTIMIZED: Reuses input buffer to minimize tensor allocation
-   * @param {Array} observation - Single observation
-   * @returns {number} - State value
    */
   predict(observation) {
-    // Initialize reusable buffer on first call
     if (!this._inputBuffer) {
       this._inputBuffer = new Float32Array(this.observationSize);
     }
     
-    // Copy observation to buffer
     for (let i = 0; i < observation.length; i++) {
       this._inputBuffer[i] = observation[i];
     }
     
-    // Use tf.tidy to automatically clean up intermediate tensors
     return tf.tidy(() => {
       const obsTensor = tf.tensor2d(this._inputBuffer, [1, this.observationSize]);
       const valueTensor = this.model.predict(obsTensor);
@@ -75,8 +77,6 @@ export class ValueNetwork {
   
   /**
    * Predict values for batch of observations
-   * @param {Array} observations - Array of observations
-   * @returns {Array} - Array of values
    */
   predictBatch(observations) {
     return observations.map(obs => this.predict(obs));
@@ -84,9 +84,6 @@ export class ValueNetwork {
   
   /**
    * Train on batch
-   * @param {tf.Tensor2D} observations
-   * @param {tf.Tensor2D} targetValues
-   * @returns {Promise<number>} - Loss value
    */
   async fit(observations, targetValues) {
     const result = await this.model.fit(observations, targetValues, {
@@ -100,7 +97,6 @@ export class ValueNetwork {
   
   /**
    * Get model weights
-   * @returns {Array} - Layer weights data
    */
   getWeights() {
     const weights = [];
@@ -120,7 +116,6 @@ export class ValueNetwork {
   
   /**
    * Set model weights
-   * @param {Array} weights - Layer weights data
    */
   setWeights(weights) {
     for (let i = 0; i < this.model.layers.length && i < weights.length; i++) {
@@ -143,4 +138,3 @@ export class ValueNetwork {
     }
   }
 }
-

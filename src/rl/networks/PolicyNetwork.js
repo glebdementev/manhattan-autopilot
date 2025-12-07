@@ -1,6 +1,8 @@
 /**
  * Policy Network (Actor) for RL Agent
  * Outputs action values in the continuous action space [-1, 1]
+ * 
+ * SIMPLIFIED: Smaller network for easier training
  */
 
 import * as tf from '@tensorflow/tfjs';
@@ -12,9 +14,8 @@ export class PolicyNetwork {
     this.actionSize = actionSize;
     this.model = null;
     
-    // Reusable tensor for single predictions (avoid allocation overhead)
+    // Reusable tensor for single predictions
     this._inputBuffer = null;
-    this._inputTensor = null;
     
     this.build();
   }
@@ -23,31 +24,32 @@ export class PolicyNetwork {
    * Build the policy network architecture
    */
   build() {
-    this.model = tf.sequential({
-      layers: [
-        tf.layers.dense({
-          inputShape: [this.observationSize],
-          units: RL_CONFIG.HIDDEN_UNITS[0],
-          activation: 'relu',
-          kernelInitializer: 'heNormal',
-        }),
-        tf.layers.dense({
-          units: RL_CONFIG.HIDDEN_UNITS[1],
-          activation: 'relu',
-          kernelInitializer: 'heNormal',
-        }),
-        tf.layers.dense({
-          units: RL_CONFIG.HIDDEN_UNITS[2],
-          activation: 'relu',
-          kernelInitializer: 'heNormal',
-        }),
-        tf.layers.dense({
-          units: this.actionSize,
-          activation: 'tanh', // Actions in [-1, 1]
-          kernelInitializer: 'glorotNormal',
-        }),
-      ],
-    });
+    const layers = [
+      tf.layers.dense({
+        inputShape: [this.observationSize],
+        units: RL_CONFIG.HIDDEN_UNITS[0],
+        activation: 'relu',
+        kernelInitializer: 'heNormal',
+      }),
+    ];
+    
+    // Add remaining hidden layers
+    for (let i = 1; i < RL_CONFIG.HIDDEN_UNITS.length; i++) {
+      layers.push(tf.layers.dense({
+        units: RL_CONFIG.HIDDEN_UNITS[i],
+        activation: 'relu',
+        kernelInitializer: 'heNormal',
+      }));
+    }
+    
+    // Output layer
+    layers.push(tf.layers.dense({
+      units: this.actionSize,
+      activation: 'tanh', // Actions in [-1, 1]
+      kernelInitializer: 'glorotNormal',
+    }));
+    
+    this.model = tf.sequential({ layers });
     
     this.model.compile({
       optimizer: tf.train.adam(RL_CONFIG.LEARNING_RATE),
@@ -57,22 +59,16 @@ export class PolicyNetwork {
   
   /**
    * Predict action from observation
-   * OPTIMIZED: Reuses input buffer to minimize tensor allocation
-   * @param {Array} observation - Single observation
-   * @returns {Array} - Action values
    */
   predict(observation) {
-    // Initialize reusable buffer on first call
     if (!this._inputBuffer) {
       this._inputBuffer = new Float32Array(this.observationSize);
     }
     
-    // Copy observation to buffer
     for (let i = 0; i < observation.length; i++) {
       this._inputBuffer[i] = observation[i];
     }
     
-    // Use tf.tidy to automatically clean up intermediate tensors
     const action = tf.tidy(() => {
       const obsTensor = tf.tensor2d(this._inputBuffer, [1, this.observationSize]);
       const actionTensor = this.model.predict(obsTensor);
@@ -84,8 +80,6 @@ export class PolicyNetwork {
   
   /**
    * Predict actions for batch of observations
-   * @param {tf.Tensor2D} obsTensor - Batch of observations
-   * @returns {tf.Tensor2D} - Batch of actions
    */
   predictBatch(obsTensor) {
     return this.model.predict(obsTensor);
@@ -93,9 +87,6 @@ export class PolicyNetwork {
   
   /**
    * Train on batch
-   * @param {tf.Tensor2D} observations
-   * @param {tf.Tensor2D} targetActions
-   * @returns {Promise<number>} - Loss value
    */
   async fit(observations, targetActions) {
     const result = await this.model.fit(observations, targetActions, {
@@ -109,7 +100,6 @@ export class PolicyNetwork {
   
   /**
    * Get model weights
-   * @returns {Array} - Layer weights data
    */
   getWeights() {
     const weights = [];
@@ -129,7 +119,6 @@ export class PolicyNetwork {
   
   /**
    * Set model weights
-   * @param {Array} weights - Layer weights data
    */
   setWeights(weights) {
     for (let i = 0; i < this.model.layers.length && i < weights.length; i++) {
@@ -152,4 +141,3 @@ export class PolicyNetwork {
     }
   }
 }
-

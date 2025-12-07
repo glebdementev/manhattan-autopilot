@@ -48,6 +48,10 @@ export class TrainingScreen {
         
         <div class="training-details">
           <div class="detail-row highlight">
+            <span class="detail-label">📚 Curriculum Level:</span>
+            <span class="detail-value curriculum-value" id="train-curriculum">0 (trivial)</span>
+          </div>
+          <div class="detail-row highlight">
             <span class="detail-label">⚡ Simulation Speed:</span>
             <span class="detail-value speed-value" id="train-speed">0x</span>
           </div>
@@ -238,6 +242,12 @@ export class TrainingScreen {
         text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
       }
       
+      .curriculum-value {
+        color: #ffaa00 !important;
+        font-size: 1.1rem;
+        text-shadow: 0 0 10px rgba(255, 170, 0, 0.5);
+      }
+      
       .training-log {
         background: rgba(0, 0, 0, 0.3);
         border-radius: 8px;
@@ -345,6 +355,8 @@ export class TrainingScreen {
       targetEpisodes = 1000,
       stepsPerSecond = 0,
       simSpeedMultiplier = 0,
+      curriculumLevel = 0,
+      curriculumStage = 'trivial',
     } = stats;
     
     // Update stat cards
@@ -353,7 +365,10 @@ export class TrainingScreen {
     document.getElementById('train-avg-reward').textContent = avgReward.toFixed(1);
     document.getElementById('train-steps').textContent = trainingSteps;
     
-    // Update details - speed first
+    // Update curriculum info
+    document.getElementById('train-curriculum').textContent = `${curriculumLevel} (${curriculumStage})`;
+    
+    // Update details - speed
     document.getElementById('train-speed').textContent = `${simSpeedMultiplier}x real-time`;
     document.getElementById('train-sps').textContent = stepsPerSecond.toLocaleString();
     document.getElementById('train-exploration').textContent = `${(explorationRate * 100).toFixed(1)}%`;

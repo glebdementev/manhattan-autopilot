@@ -258,5 +258,19 @@ export class GhostDrone {
   setVisible(visible) {
     this.mesh.visible = visible;
   }
+  
+  /**
+   * Check if ghost drone is visible
+   */
+  isVisible() {
+    return this.mesh.visible;
+  }
+  
+  /**
+   * Check if ghost drone had a collision
+   */
+  hadCollision() {
+    return this.lastCollision;
+  }
 }
 

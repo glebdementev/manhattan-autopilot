@@ -124,69 +124,37 @@ export const CAMERA = {
 // Reinforcement Learning Configuration
 export const RL_CONFIG = {
   // Episode settings
-  MAX_EPISODE_STEPS: 2000,      // Max steps per episode
-  MAX_TARGET_DISTANCE: 100,     // Max distance for normalization
-  
-  // ===========================================
-  // REWARD SHAPING
-  // ===========================================
-  
-  // Goal rewards (Primary motivation)
-  REWARD_TARGET_REACHED: 100,   // Big bonus for reaching target
-  REWARD_DISTANCE_PROGRESS: 2.5, // Reward for getting closer to target (per meter)
-  REWARD_DISTANCE_REGRESS: 3.0, // Penalty multiplier for moving away from target (stronger than progress)
-  
-  // Collision/Safety penalties (CRITICAL - agent must HATE being near obstacles)
-  REWARD_COLLISION: -500,       // CATASTROPHIC penalty for collision - must never happen
-  REWARD_OBSTACLE_PROXIMITY: -2.0, // Strong base penalty for being close to obstacles
-  REWARD_OBSTACLE_VERY_CLOSE: -8.0, // Extreme penalty when dangerously close
-  OBSTACLE_DANGER_DISTANCE: 8,  // Distance at which obstacles become dangerous (meters)
-  OBSTACLE_CLOSE_DISTANCE: 4,   // Distance at which strong penalty kicks in (meters)
-  OBSTACLE_CRITICAL_DISTANCE: 2, // Distance at which EXTREME penalty kicks in (meters)
-  
-  // Speed rewards (Encourages efficient navigation)
-  REWARD_HIGH_SPEED: 0.15,      // Bonus for maintaining high speed
-  REWARD_STAGNATION: -0.3,      // Penalty for staying in one place (anti-hovering)
-  REWARD_VELOCITY_TOWARDS_TARGET: 0.2, // Bonus for moving towards target
-  
-  // Altitude rewards/penalties (Encourages low flight, HATES high flight)
-  REWARD_LOW_ALTITUDE: 0.12,    // Bonus for flying low (1.5-4m above ground)
-  REWARD_GOOD_ALTITUDE: 0.05,   // Smaller bonus for moderate altitude (4-8m)
-  REWARD_HIGH_ALTITUDE: -0.5,   // Penalty for flying too high (8-15m)
-  REWARD_VERY_HIGH_ALTITUDE: -2.0, // Strong penalty for flying way too high (>15m)
-  
-  // Time penalty
-  REWARD_TIME_PENALTY: -0.02,   // Small penalty per step (encourages fast completion)
+  MAX_EPISODE_STEPS: 500,       // Shorter episodes (curriculum starts easy)
+  MAX_TARGET_DISTANCE: 50,      // Max distance for normalization
   
   // ===========================================
   // NEURAL NETWORK
   // ===========================================
-  HIDDEN_UNITS: [128, 64, 32],  // Hidden layer sizes
+  HIDDEN_UNITS: [64, 32, 16],   // Smaller network (easier to train)
   
   // ===========================================
   // TRAINING HYPERPARAMETERS
   // ===========================================
-  LEARNING_RATE: 0.0003,        // Learning rate for optimizer
-  POLICY_LEARNING_RATE: 0.1,    // Learning rate for policy updates
+  LEARNING_RATE: 0.001,         // Learning rate for optimizer
+  POLICY_LEARNING_RATE: 0.05,   // Learning rate for policy updates
   GAMMA: 0.99,                  // Discount factor
-  GAE_LAMBDA: 0.95,             // GAE lambda for advantage estimation
   BATCH_SIZE: 64,               // Training batch size
-  BUFFER_SIZE: 10000,           // Experience replay buffer size
-  MIN_BUFFER_SIZE: 500,         // Minimum buffer size before training
+  BUFFER_SIZE: 2000,            // Smaller buffer for focused learning
+  MIN_BUFFER_SIZE: 100,         // Start training earlier
   
   // ===========================================
   // EXPLORATION
   // ===========================================
-  INITIAL_EXPLORATION: 0.5,     // Initial exploration rate
-  EXPLORATION_DECAY: 0.9995,    // Exploration decay per training step
+  INITIAL_EXPLORATION: 0.3,     // Lower initial exploration
+  EXPLORATION_DECAY: 0.999,     // Slower decay
   MIN_EXPLORATION: 0.05,        // Minimum exploration rate
-  ACTION_NOISE: 0.3,            // Noise added to actions during exploration
+  ACTION_NOISE: 0.2,            // Less noise for more stable learning
   
   // ===========================================
   // TRAINING CONTROL
   // ===========================================
-  TRAIN_INTERVAL: 10,           // Train every N steps
-  EPISODES_PER_SCENE: 5,        // Regenerate scene every N episodes
+  TRAIN_INTERVAL: 20,           // Train every N steps
+  EPISODES_PER_SCENE: 50,       // Less frequent scene regeneration
   AUTO_TRAIN: true,             // Whether to train automatically
   TRAINING_SPEED: 1,            // Simulation speed multiplier during training
 };

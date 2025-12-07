@@ -218,12 +218,25 @@ class Simulation {
    * Update simulation state
    */
   update(dt) {
-    const { drone, ghostDrone, rlEnvironment } = this.components;
+    const { drone, ghostDrone, rlEnvironment, rlAgent } = this.components;
     
     let t0, t1;
     
-    // Get manual action
-    const action = this.inputController.getAction();
+    // Choose action source:
+    // - If a model is loaded, use RL agent (autopilot)
+    // - Otherwise, use manual keyboard input
+    let action;
+    if (this.trainingController.hasLoadedModel && rlAgent) {
+      const currentObs = this.episodeManager.getObservation();
+      if (currentObs) {
+        action = rlAgent.selectAction(currentObs, false);
+      } else {
+        // Fallback if observation not initialized yet
+        action = this.inputController.getAction();
+      }
+    } else {
+      action = this.inputController.getAction();
+    }
     
     // Take step in environment
     t0 = performance.now();

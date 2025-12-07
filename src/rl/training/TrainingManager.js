@@ -1,20 +1,23 @@
 /**
  * Training Manager for RL Agent
- * Handles the training loop and policy/value network updates
+ * 
+ * SIMPLIFIED approach using vanilla policy gradient:
+ * - Policy network: Supervised learning towards "better" actions
+ * - Value network: Predicts expected return
+ * - Use small buffer, train on recent experiences
  */
 
 import * as tf from '@tensorflow/tfjs';
 import { RL_CONFIG } from '../../config.js';
 import { ExperienceBuffer } from './ExperienceBuffer.js';
-import { AdvantageCalculator } from './AdvantageCalculator.js';
 
 export class TrainingManager {
   constructor(policyNetwork, valueNetwork) {
     this.policyNetwork = policyNetwork;
     this.valueNetwork = valueNetwork;
     
-    this.experienceBuffer = new ExperienceBuffer();
-    this.advantageCalculator = new AdvantageCalculator();
+    // Smaller buffer for more focused learning
+    this.experienceBuffer = new ExperienceBuffer(2000);
     
     // Training state
     this.isTraining = false;
@@ -27,6 +30,10 @@ export class TrainingManager {
       avgReward: [],
       successRate: [],
     };
+    
+    // Hyperparameters
+    this.gamma = 0.99;
+    this.minBufferSize = 100; // Train with less data
   }
   
   /**
@@ -41,32 +48,32 @@ export class TrainingManager {
    * @returns {Object|null} - { policyLoss, valueLoss } or null if not ready
    */
   async train() {
-    if (!this.experienceBuffer.isReadyForTraining()) {
+    if (this.experienceBuffer.size < this.minBufferSize) {
       return null;
     }
     
     this.isTraining = true;
     
     try {
-      // Sample batch from buffer
-      const batchSize = Math.min(RL_CONFIG.BATCH_SIZE, this.experienceBuffer.size);
-      const batch = this.experienceBuffer.sample(batchSize);
+      // Sample recent experiences (more relevant than random)
+      const batchSize = Math.min(64, this.experienceBuffer.size);
+      const batch = this.experienceBuffer.getRecent(batchSize);
       
       // Extract batch data
-      const { observations, actions, rewards, nextObservations, dones } = 
-        ExperienceBuffer.extractBatchData(batch);
+      const observations = batch.map(e => e.observation);
+      const actions = batch.map(e => e.action);
+      const rewards = batch.map(e => e.reward);
+      const nextObservations = batch.map(e => e.nextObservation);
+      const dones = batch.map(e => e.done ? 1 : 0);
       
-      // Calculate advantages and returns
-      const { advantages, returns } = this.advantageCalculator.compute(
-        observations,
-        rewards,
-        nextObservations,
-        dones,
-        (obs) => this.valueNetwork.predict(obs)
-      );
+      // Compute returns (discounted cumulative rewards)
+      const returns = this.computeReturns(rewards, dones);
       
-      // Train value network
+      // Train value network first
       const valueLoss = await this.trainValueNetwork(observations, returns);
+      
+      // Compute advantages
+      const advantages = this.computeAdvantages(observations, returns);
       
       // Train policy network
       const policyLoss = await this.trainPolicyNetwork(observations, actions, advantages);
@@ -85,6 +92,46 @@ export class TrainingManager {
   }
   
   /**
+   * Compute discounted returns for each step
+   */
+  computeReturns(rewards, dones) {
+    const returns = new Array(rewards.length);
+    let runningReturn = 0;
+    
+    // Work backwards through the batch
+    for (let i = rewards.length - 1; i >= 0; i--) {
+      if (dones[i]) {
+        runningReturn = rewards[i];
+      } else {
+        runningReturn = rewards[i] + this.gamma * runningReturn;
+      }
+      returns[i] = runningReturn;
+    }
+    
+    return returns;
+  }
+  
+  /**
+   * Compute advantages (return - value baseline)
+   */
+  computeAdvantages(observations, returns) {
+    const advantages = [];
+    
+    for (let i = 0; i < observations.length; i++) {
+      const value = this.valueNetwork.predict(observations[i]);
+      advantages.push(returns[i] - value);
+    }
+    
+    // Normalize advantages for stable training
+    const mean = advantages.reduce((a, b) => a + b, 0) / advantages.length;
+    const std = Math.sqrt(
+      advantages.reduce((a, b) => a + (b - mean) ** 2, 0) / advantages.length
+    ) + 1e-8;
+    
+    return advantages.map(a => (a - mean) / std);
+  }
+  
+  /**
    * Train value network on returns
    */
   async trainValueNetwork(observations, returns) {
@@ -100,44 +147,45 @@ export class TrainingManager {
   }
   
   /**
-   * Train policy network using policy gradient
+   * Train policy network using simplified policy gradient
+   * 
+   * Idea: If advantage > 0, nudge action in that direction.
+   *       If advantage < 0, nudge action away from that direction.
    */
   async trainPolicyNetwork(observations, actions, advantages) {
     const obsTensor = tf.tensor2d(observations);
     const actionsTensor = tf.tensor2d(actions);
-    const advantagesTensor = tf.tensor1d(advantages);
     
     // Get current policy output
     const currentActions = this.policyNetwork.predictBatch(obsTensor);
     
-    // Compute target actions (nudge towards actions with positive advantage)
-    const scaledAdvantages = advantagesTensor.expandDims(1);
-    const actionDeltas = tf.mul(
-      tf.sub(actionsTensor, currentActions),
-      scaledAdvantages
-    );
-    
-    // Target = current + learning_rate * delta
-    const targetActions = tf.add(
-      currentActions,
-      tf.mul(actionDeltas, tf.scalar(RL_CONFIG.POLICY_LEARNING_RATE))
-    );
-    
-    // Clip to valid action range [-1, 1]
-    const clippedTargets = tf.clipByValue(targetActions, -1, 1);
+    // Compute target actions
+    // For positive advantage: move toward the taken action
+    // For negative advantage: move away from the taken action
+    const targetActions = tf.tidy(() => {
+      const advantagesTensor = tf.tensor2d(advantages.map(a => [a, a, a]));
+      
+      // Scale factor for how much to adjust
+      const learningRate = 0.05;
+      
+      // target = current + lr * advantage * (action - current)
+      const diff = tf.sub(actionsTensor, currentActions);
+      const scaled = tf.mul(diff, advantagesTensor);
+      const delta = tf.mul(scaled, tf.scalar(learningRate));
+      const target = tf.add(currentActions, delta);
+      
+      // Clip to valid action range [-1, 1]
+      return tf.clipByValue(target, -1, 1);
+    });
     
     // Train
-    const loss = await this.policyNetwork.fit(obsTensor, clippedTargets);
+    const loss = await this.policyNetwork.fit(obsTensor, targetActions);
     
     // Cleanup tensors
     obsTensor.dispose();
     actionsTensor.dispose();
-    advantagesTensor.dispose();
     currentActions.dispose();
-    scaledAdvantages.dispose();
-    actionDeltas.dispose();
     targetActions.dispose();
-    clippedTargets.dispose();
     
     return loss;
   }
@@ -153,8 +201,8 @@ export class TrainingManager {
    * Get training statistics
    */
   getStats() {
-    const recentPolicyLoss = this.history.policyLoss.slice(-100);
-    const recentValueLoss = this.history.valueLoss.slice(-100);
+    const recentPolicyLoss = this.history.policyLoss.slice(-50);
+    const recentValueLoss = this.history.valueLoss.slice(-50);
     
     return {
       trainingStep: this.trainingStep,
@@ -189,4 +237,3 @@ export class TrainingManager {
     this.trainingStep = step;
   }
 }
-
