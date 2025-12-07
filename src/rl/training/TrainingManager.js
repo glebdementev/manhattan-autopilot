@@ -1,14 +1,19 @@
 /**
- * Training Manager for RL Agent
+ * Training Manager for Hybrid RL Agent
  * 
- * SIMPLIFIED approach using vanilla policy gradient:
- * - Policy network: Supervised learning towards "better" actions
- * - Value network: Predicts expected return
- * - Use small buffer, train on recent experiences
+ * The agent uses: final_action = base_action + correction
+ * Where base_action = observation (go towards target)
+ * 
+ * We train the correction network to improve rewards:
+ * - Positive reward: the correction was helpful (or at least not harmful)
+ * - Negative reward: the correction made things worse
+ * 
+ * Training target: 
+ * - Good outcome → reinforce current correction
+ * - Bad outcome → reduce correction magnitude (let base action dominate)
  */
 
 import * as tf from '@tensorflow/tfjs';
-import { RL_CONFIG } from '../../config.js';
 import { ExperienceBuffer } from './ExperienceBuffer.js';
 
 export class TrainingManager {
@@ -16,14 +21,11 @@ export class TrainingManager {
     this.policyNetwork = policyNetwork;
     this.valueNetwork = valueNetwork;
     
-    // Smaller buffer for more focused learning
     this.experienceBuffer = new ExperienceBuffer(2000);
     
-    // Training state
     this.isTraining = false;
     this.trainingStep = 0;
     
-    // Training history
     this.history = {
       policyLoss: [],
       valueLoss: [],
@@ -31,22 +33,14 @@ export class TrainingManager {
       successRate: [],
     };
     
-    // Hyperparameters
     this.gamma = 0.99;
-    this.minBufferSize = 100; // Train with less data
+    this.minBufferSize = 64;
   }
   
-  /**
-   * Store experience in buffer
-   */
   storeExperience(observation, action, reward, nextObservation, done) {
     this.experienceBuffer.store(observation, action, reward, nextObservation, done);
   }
   
-  /**
-   * Train on collected experiences
-   * @returns {Object|null} - { policyLoss, valueLoss } or null if not ready
-   */
   async train() {
     if (this.experienceBuffer.size < this.minBufferSize) {
       return null;
@@ -55,33 +49,20 @@ export class TrainingManager {
     this.isTraining = true;
     
     try {
-      // Sample recent experiences (more relevant than random)
       const batchSize = Math.min(64, this.experienceBuffer.size);
       const batch = this.experienceBuffer.getRecent(batchSize);
       
-      // Extract batch data
       const observations = batch.map(e => e.observation);
       const actions = batch.map(e => e.action);
       const rewards = batch.map(e => e.reward);
-      const nextObservations = batch.map(e => e.nextObservation);
       const dones = batch.map(e => e.done ? 1 : 0);
       
-      // Compute returns (discounted cumulative rewards)
       const returns = this.computeReturns(rewards, dones);
-      
-      // Train value network first
       const valueLoss = await this.trainValueNetwork(observations, returns);
+      const policyLoss = await this.trainPolicyNetwork(observations, actions, rewards);
       
-      // Compute advantages
-      const advantages = this.computeAdvantages(observations, returns);
-      
-      // Train policy network
-      const policyLoss = await this.trainPolicyNetwork(observations, actions, advantages);
-      
-      // Update training state
       this.trainingStep++;
       
-      // Store history
       this.history.policyLoss.push(policyLoss);
       this.history.valueLoss.push(valueLoss);
       
@@ -91,14 +72,10 @@ export class TrainingManager {
     }
   }
   
-  /**
-   * Compute discounted returns for each step
-   */
   computeReturns(rewards, dones) {
     const returns = new Array(rewards.length);
     let runningReturn = 0;
     
-    // Work backwards through the batch
     for (let i = rewards.length - 1; i >= 0; i--) {
       if (dones[i]) {
         runningReturn = rewards[i];
@@ -111,29 +88,6 @@ export class TrainingManager {
     return returns;
   }
   
-  /**
-   * Compute advantages (return - value baseline)
-   */
-  computeAdvantages(observations, returns) {
-    const advantages = [];
-    
-    for (let i = 0; i < observations.length; i++) {
-      const value = this.valueNetwork.predict(observations[i]);
-      advantages.push(returns[i] - value);
-    }
-    
-    // Normalize advantages for stable training
-    const mean = advantages.reduce((a, b) => a + b, 0) / advantages.length;
-    const std = Math.sqrt(
-      advantages.reduce((a, b) => a + (b - mean) ** 2, 0) / advantages.length
-    ) + 1e-8;
-    
-    return advantages.map(a => (a - mean) / std);
-  }
-  
-  /**
-   * Train value network on returns
-   */
   async trainValueNetwork(observations, returns) {
     const obsTensor = tf.tensor2d(observations);
     const returnsTensor = tf.tensor2d(returns.map(r => [r]));
@@ -147,39 +101,70 @@ export class TrainingManager {
   }
   
   /**
-   * Train policy network - SIMPLE SUPERVISED LEARNING
+   * Train correction network
    * 
-   * For this simple task: the correct action IS the observation!
-   * obs = direction to target, action = acceleration towards target
-   * So we just train: action = observation
+   * The correction is: action - observation (since action = obs + correction)
+   * 
+   * Strategy:
+   * - Good reward (>0): The correction was helpful, keep it
+   * - Bad reward (<0): The correction was harmful, target = zero (let base action work)
    */
-  async trainPolicyNetwork(observations, actions, advantages) {
-    const obsTensor = tf.tensor2d(observations);
+  async trainPolicyNetwork(observations, actions, rewards) {
+    const trainObs = [];
+    const trainTargets = [];
     
-    // SIMPLE: Target action = observation (go towards target!)
-    // This is supervised learning, not RL, but it works for this task
-    const targetActions = tf.tensor2d(observations);
+    for (let i = 0; i < observations.length; i++) {
+      const obs = observations[i];
+      const action = actions[i];
+      const reward = rewards[i];
+      
+      // Compute what correction was applied
+      // action = 0.8 * obs + 0.2 * correction
+      // So: correction = (action - 0.8 * obs) / 0.2
+      const baseWeight = 0.8;
+      const correction = obs.map((o, j) => (action[j] - baseWeight * o) / (1 - baseWeight));
+      
+      trainObs.push(obs);
+      
+      if (reward > 0.01) {
+        // Good outcome - keep the correction that worked
+        trainTargets.push(correction);
+      } else if (reward < -0.01) {
+        // Bad outcome - target zero correction (trust base action)
+        trainTargets.push([0, 0, 0]);
+      } else {
+        // Neutral - small correction towards zero
+        trainTargets.push(correction.map(c => c * 0.5));
+      }
+    }
     
-    // Train
-    const loss = await this.policyNetwork.fit(obsTensor, targetActions);
+    if (trainObs.length === 0) {
+      return 0;
+    }
     
-    // Cleanup
+    // Debug logging
+    if (this.trainingStep % 10 === 0) {
+      const avgReward = rewards.reduce((a, b) => a + b, 0) / rewards.length;
+      const posCount = rewards.filter(r => r > 0.01).length;
+      const negCount = rewards.filter(r => r < -0.01).length;
+      console.log(`[TRAIN] step=${this.trainingStep} avgR=${avgReward.toFixed(3)} pos=${posCount} neg=${negCount}`);
+    }
+    
+    const obsTensor = tf.tensor2d(trainObs);
+    const targetTensor = tf.tensor2d(trainTargets);
+    
+    const loss = await this.policyNetwork.fit(obsTensor, targetTensor);
+    
     obsTensor.dispose();
-    targetActions.dispose();
+    targetTensor.dispose();
     
     return loss;
   }
   
-  /**
-   * Clear experience buffer
-   */
   clearBuffer() {
     this.experienceBuffer.clear();
   }
   
-  /**
-   * Get training statistics
-   */
   getStats() {
     const recentPolicyLoss = this.history.policyLoss.slice(-50);
     const recentValueLoss = this.history.valueLoss.slice(-50);
@@ -196,23 +181,14 @@ export class TrainingManager {
     };
   }
   
-  /**
-   * Get full training history
-   */
   getHistory() {
     return { ...this.history };
   }
   
-  /**
-   * Set training history (for loading saved state)
-   */
   setHistory(history) {
     this.history = { ...history };
   }
   
-  /**
-   * Set training step (for loading saved state)
-   */
   setTrainingStep(step) {
     this.trainingStep = step;
   }

@@ -13,15 +13,16 @@ export class RewardCalculator {
   constructor() {
     this.config = {
       // Terminal rewards
-      targetReached: 100,
-      collision: -100,
+      targetReached: 10,
+      collision: -1,
       
-      // Distance shaping
-      distanceProgress: 1.0,
+      // Distance shaping - STRONG signal for approaching target
+      // At 5 m/s towards target: reward = 5 * 5 = 25 per second
+      distanceProgress: 5.0,
       
-      // Proximity penalty - CRITICAL ZONE ONLY (< 1m)
-      proximityCriticalDist: 0.5, // Penalty starts at 1m
-      proximitySeverePenalty: -2.0, // Base penalty at 1m (scales up rapidly)
+      // Proximity penalty - gentle
+      proximityCriticalDist: 0.5,
+      proximitySeverePenalty: -0.5,
       
       // Time penalty
       timePenalty: 0,

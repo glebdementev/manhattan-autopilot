@@ -1,12 +1,13 @@
 /**
- * Reinforcement Learning Agent using Policy Gradient (Actor-Critic)
+ * Reinforcement Learning Agent - Hybrid Approach
  * 
- * Pure RL implementation without heuristics.
- * The agent learns entirely from experience and reward signals.
+ * BASE ACTION: Always go towards target (observation = direction to target)
+ * RL CORRECTION: Network learns adjustments for obstacle avoidance
  * 
- * Architecture:
- * - Policy Network (Actor): Outputs continuous actions [-1, 1]
- * - Value Network (Critic): Estimates state value for advantage calculation
+ * Final action = base_action + learned_correction
+ * 
+ * This guarantees the drone always moves towards the target,
+ * while RL learns the nuances of obstacle avoidance.
  */
 
 import { RL_CONFIG } from '../config.js';
@@ -20,69 +21,70 @@ export class RLAgent {
     this.observationSize = observationSize;
     this.actionSize = actionSize;
     
-    // Networks
+    // Networks - correction network outputs small adjustments
     this.policyNetwork = new PolicyNetwork(observationSize, actionSize);
     this.valueNetwork = new ValueNetwork(observationSize);
     
-    // Training manager
     this.trainingManager = new TrainingManager(this.policyNetwork, this.valueNetwork);
-    
-    // Exploration manager
     this.explorationManager = new ExplorationManager();
     
-    // Episode counter
     this.episodeCount = 0;
-    
-    // Debug counter
     this.debugCounter = 0;
     
-    console.log('RL Agent initialized (pure RL, no heuristics)');
-    console.log(`Observation size: ${this.observationSize}, Action size: ${this.actionSize}`);
+    // How much to trust the base action vs learned correction
+    // 1.0 = pure base action, 0.0 = pure learned action
+    this.baseActionWeight = 0.8;
+    
+    console.log('RL Agent initialized (hybrid: base + correction)');
+    console.log(`Base action weight: ${this.baseActionWeight}`);
   }
   
   /**
    * Select action given observation
-   * @param {Array} observation
-   * @param {boolean} training - Whether to add exploration noise
+   * 
+   * observation = [dirX, dirY, dirZ] = direction to target
+   * 
+   * Base action = observation (go towards target)
+   * Correction = network output (learned adjustments)
+   * Final = weighted combination
    */
   selectAction(observation, training = false) {
-    // Get neural network action
-    const action = this.policyNetwork.predict(observation);
+    // Base action: go directly towards target
+    const baseAction = [...observation];
     
-    // Debug logging - more frequent during training
+    // Get learned correction from network
+    const correction = this.policyNetwork.predict(observation);
+    
+    // Combine: mostly base action, small correction
+    const action = baseAction.map((base, i) => {
+      const combined = this.baseActionWeight * base + (1 - this.baseActionWeight) * correction[i];
+      return Math.max(-1, Math.min(1, combined));
+    });
+    
+    // Debug logging
     this.debugCounter++;
     if (this.debugCounter <= 20 || this.debugCounter % 500 === 0) {
-      console.log(`[ACTION] obs=[${observation.map(v => v.toFixed(2)).join(', ')}] → raw=[${action.map(v => v.toFixed(2)).join(', ')}]`);
+      console.log(`[ACTION] obs=[${observation.map(v => v.toFixed(2)).join(', ')}]`);
+      console.log(`  base=[${baseAction.map(v => v.toFixed(2)).join(', ')}] corr=[${correction.map(v => v.toFixed(2)).join(', ')}]`);
+      console.log(`  final=[${action.map(v => v.toFixed(2)).join(', ')}]`);
     }
     
     if (training) {
       const noisyAction = this.explorationManager.addNoise(action, true);
-      if (this.debugCounter <= 20 || this.debugCounter % 500 === 0) {
-        console.log(`[ACTION+NOISE] → [${noisyAction.map(v => v.toFixed(2)).join(', ')}]`);
-      }
       return noisyAction;
     }
     
     return action;
   }
   
-  /**
-   * Get value estimate for observation
-   */
   getValue(observation) {
     return this.valueNetwork.predict(observation);
   }
   
-  /**
-   * Store experience in buffer
-   */
   storeExperience(observation, action, reward, nextObservation, done) {
     this.trainingManager.storeExperience(observation, action, reward, nextObservation, done);
   }
   
-  /**
-   * Train on collected experiences
-   */
   async train() {
     const result = await this.trainingManager.train();
     
@@ -93,77 +95,48 @@ export class RLAgent {
     return result;
   }
   
-  /**
-   * Clear experience buffer
-   */
   clearBuffer() {
     this.trainingManager.clearBuffer();
   }
   
-  /**
-   * Get training statistics
-   */
   getStats() {
     const trainingStats = this.trainingManager.getStats();
     
     return {
       ...trainingStats,
       explorationRate: this.explorationManager.getRate(),
+      baseActionWeight: this.baseActionWeight,
     };
   }
   
-  /**
-   * Check if agent is ready for inference
-   */
   isReady() {
     return this.policyNetwork !== null && !this.trainingManager.isTraining;
   }
   
-  /**
-   * Check if currently training
-   */
   get isTraining() {
     return this.trainingManager.isTraining;
   }
   
-  /**
-   * Get training step count
-   */
   get trainingStep() {
     return this.trainingManager.trainingStep;
   }
   
-  /**
-   * Get exploration rate
-   */
   get explorationRate() {
     return this.explorationManager.getRate();
   }
   
-  /**
-   * Set exploration rate
-   */
   set explorationRate(rate) {
     this.explorationManager.setRate(rate);
   }
   
-  /**
-   * Get experience buffer size
-   */
   get bufferSize() {
     return this.trainingManager.experienceBuffer.size;
   }
   
-  /**
-   * Get training history
-   */
   get trainingHistory() {
     return this.trainingManager.getHistory();
   }
   
-  /**
-   * Export model to file
-   */
   async exportToFile() {
     return ModelIO.exportToFile(
       this.policyNetwork,
@@ -176,9 +149,6 @@ export class RLAgent {
     );
   }
   
-  /**
-   * Import model from file
-   */
   async importFromFile(file) {
     const result = await ModelIO.importFromFile(
       file,
@@ -196,9 +166,6 @@ export class RLAgent {
     return false;
   }
   
-  /**
-   * Dispose of networks
-   */
   dispose() {
     if (this.policyNetwork) {
       this.policyNetwork.dispose();

@@ -145,10 +145,10 @@ export const RL_CONFIG = {
   // ===========================================
   // EXPLORATION
   // ===========================================
-  INITIAL_EXPLORATION: 0.3,     // Lower initial exploration
-  EXPLORATION_DECAY: 0.999,     // Slower decay
-  MIN_EXPLORATION: 0.05,        // Minimum exploration rate
-  ACTION_NOISE: 0.2,            // Less noise for more stable learning
+  INITIAL_EXPLORATION: 0.5,     // Start with moderate exploration
+  EXPLORATION_DECAY: 0.995,     // Faster decay to reduce noise over time
+  MIN_EXPLORATION: 0.1,         // Keep some exploration
+  ACTION_NOISE: 0.15,           // Reduced noise magnitude
   
   // ===========================================
   // TRAINING CONTROL

@@ -15,17 +15,26 @@ export class ExplorationManager {
   
   /**
    * Add exploration noise to action
+   * Uses Gaussian noise (zero-mean) to avoid directional bias
    * @param {Array} action - Base action values
    * @param {boolean} shouldExplore - Whether to add exploration
    * @returns {Array} - Action with potential noise
    */
   addNoise(action, shouldExplore = true) {
-    if (!shouldExplore || Math.random() >= this.explorationRate) {
+    if (!shouldExplore) {
       return action;
     }
     
+    // Always add Gaussian noise scaled by exploration rate
+    // This is more stable than random on/off exploration
+    const noiseScale = this.actionNoise * this.explorationRate;
+    
     return action.map(a => {
-      const noise = (Math.random() - 0.5) * 2 * this.actionNoise;
+      // Box-Muller transform for Gaussian noise
+      const u1 = Math.random();
+      const u2 = Math.random();
+      const gaussian = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+      const noise = gaussian * noiseScale;
       return Math.max(-1, Math.min(1, a + noise));
     });
   }
