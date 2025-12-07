@@ -47,14 +47,12 @@ export const DRONE = {
   VERTICAL_SPEED: 4,      // Vertical movement speed
 };
 
-// LiDAR configuration - CLOSEST OBSTACLES MODE
+// LiDAR configuration - FORWARD CONE
 export const LIDAR = {
-  NUM_SCAN_RAYS: 72,              // Dense scan (5° per ray for 360° coverage)
-  HORIZONTAL_FOV: Math.PI * 2,    // 360 degrees horizontal scan
-  NUM_CLOSEST_OBSTACLES: 4,       // Return 4 closest obstacles
-  MIN_ANGULAR_SEPARATION: Math.PI / 9, // 20 degrees minimum between obstacles
-  MAX_RANGE: 25,                  // Maximum detection range
-  VISUALIZE: false,               // DISABLED by default for performance
+  NUM_RAYS: 16,                   // 16 rays in forward cone
+  FOV: Math.PI / 3,               // 60° total (±30° from forward)
+  MAX_RANGE: 25,                  // Maximum detection range (meters)
+  VISUALIZE: false,               // Disabled by default for performance
   RAY_COLOR: 0x00ffaa,            // Color of LiDAR rays
   HIT_COLOR: 0xff4444,            // Color of hit points
 };
@@ -120,7 +118,7 @@ export const RL_CONFIG = {
   // ===========================================
   // NEURAL NETWORK
   // ===========================================
-  HIDDEN_UNITS: [64, 64],   // Larger network (3 inputs → 3 outputs)
+  HIDDEN_UNITS: [64, 32],   // Network for 24-dim observation
   
   // ===========================================
   // TRAINING HYPERPARAMETERS

@@ -15,7 +15,8 @@
   "dependencies": {
     "@tensorflow/tfjs": "^4.20.0",
     "@tensorflow/tfjs-node": "^4.22.0",
-    "three": "^0.160.0"
+    "three": "^0.160.0",
+    "three-mesh-bvh": "^0.9.3"
   },
   "devDependencies": {
     "gh-pages": "^6.3.0",

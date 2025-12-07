@@ -291,7 +291,6 @@ class Simulation {
     const { drone, rlEnvironment, ui, lidar } = this.components;
     
     const state = drone.getState();
-    const closestObstacles = lidar.getClosestObstacles();
     const targetDir = rlEnvironment.getTargetDirection();
     const distToTarget = rlEnvironment.getDistanceToTarget();
     const canSeeTarget = rlEnvironment.canSeeTarget();
@@ -302,13 +301,12 @@ class Simulation {
       targetDir,
       canSeeTarget,
       
-      // 4 closest obstacles with direction and distance
-      closestObstacles,
+      // Lidar
+      minObstacleDist: lidar.getMinDistance(),
       maxRange: LIDAR.MAX_RANGE,
       
       // Vertical sensors
       nadirDist: lidar.getNadirDistance(),
-      zenithDist: lidar.getZenithDistance(),
       
       // World velocity (normalized)
       velocity: {

@@ -96,42 +96,33 @@ export function updateObservationDisplay(elements, obsData) {
     elements.obsTargetVisible.className = obsData.canSeeTarget ? 'obs-value obs-good' : 'obs-value obs-bad';
   }
   
-  // 4 closest obstacles
-  const obstacleElements = [
-    elements.obsObstacle1,
-    elements.obsObstacle2,
-    elements.obsObstacle3,
-    elements.obsObstacle4,
-  ];
-  
-  for (let i = 0; i < 4; i++) {
-    const el = obstacleElements[i];
-    if (!el) continue;
-    
-    const obs = obsData.closestObstacles[i];
-    if (obs && obs.distance < obsData.maxRange) {
-      // Format: distance + direction indicator
-      const dist = obs.distance.toFixed(1);
-      const dirDesc = getDirectionDesc(obs.dirX, obs.dirZ);
-      el.textContent = `${dist}m ${dirDesc}`;
-      el.className = getDistanceClass(obs.distance);
+  // Min obstacle distance (from 64 rays)
+  if (elements.obsObstacle1) {
+    const minDist = obsData.minObstacleDist;
+    if (minDist < obsData.maxRange) {
+      elements.obsObstacle1.textContent = `${minDist.toFixed(1)}m`;
+      elements.obsObstacle1.className = getDistanceClass(minDist);
     } else {
-      el.textContent = '∞ (clear)';
-      el.className = 'obs-value obs-good';
+      elements.obsObstacle1.textContent = '∞ (clear)';
+      elements.obsObstacle1.className = 'obs-value obs-good';
     }
   }
   
-  // Nadir and Zenith
+  // Hide unused obstacle slots
+  if (elements.obsObstacle2) elements.obsObstacle2.parentElement.style.display = 'none';
+  if (elements.obsObstacle3) elements.obsObstacle3.parentElement.style.display = 'none';
+  if (elements.obsObstacle4) elements.obsObstacle4.parentElement.style.display = 'none';
+  
+  // Nadir
   if (elements.obsNadir) {
     const nadir = obsData.nadirDist;
     elements.obsNadir.textContent = nadir < obsData.maxRange ? nadir.toFixed(1) : '∞';
     elements.obsNadir.className = getDistanceClass(nadir);
   }
   
+  // Hide zenith (not used anymore)
   if (elements.obsZenith) {
-    const zenith = obsData.zenithDist;
-    elements.obsZenith.textContent = zenith < obsData.maxRange ? zenith.toFixed(1) : '∞';
-    elements.obsZenith.className = getDistanceClass(zenith);
+    elements.obsZenith.parentElement.style.display = 'none';
   }
   
   // Velocity (world)
@@ -144,24 +135,6 @@ export function updateObservationDisplay(elements, obsData) {
   if (elements.obsVelUp && obsData.velocity) {
     elements.obsVelUp.textContent = obsData.velocity.vz.toFixed(1);
   }
-}
-
-/**
- * Get human-readable direction description from local direction
- */
-function getDirectionDesc(dirX, dirZ) {
-  // dirZ > 0 = forward, dirX > 0 = right
-  const angle = Math.atan2(dirX, dirZ) * 180 / Math.PI;
-  
-  if (angle > -22.5 && angle <= 22.5) return '↑';      // Forward
-  if (angle > 22.5 && angle <= 67.5) return '↗';       // Forward-right
-  if (angle > 67.5 && angle <= 112.5) return '→';      // Right
-  if (angle > 112.5 && angle <= 157.5) return '↘';     // Back-right
-  if (angle > 157.5 || angle <= -157.5) return '↓';    // Back
-  if (angle > -157.5 && angle <= -112.5) return '↙';   // Back-left
-  if (angle > -112.5 && angle <= -67.5) return '←';    // Left
-  if (angle > -67.5 && angle <= -22.5) return '↖';     // Forward-left
-  return '•';
 }
 
 /**

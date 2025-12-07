@@ -1,671 +1,270 @@
 /**
- * 3D LiDAR sensor simulation for drone navigation
- * Features:
- * - Dense horizontal sweep for obstacle detection
- * - Returns N closest obstacles with direction + distance (min angular separation)
- * - Nadir (downward) and zenith (upward) rays for altitude awareness
- * 
- * OPTIMIZED: Uses custom FastRaycaster instead of Three.js raycaster
+ * LiDAR sensor - 16 horizontal rays + nadir
+ * Uses Three.js Raycaster with BVH acceleration
  */
 import * as THREE from 'three';
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { LIDAR } from '../config.js';
-import { FastRaycaster } from './FastRaycaster.js';
+
+// Install BVH acceleration on Three.js prototypes
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 export class Lidar {
   constructor(drone) {
     this.drone = drone;
     
-    // Use fast custom raycaster instead of Three.js
-    this.fastRaycaster = new FastRaycaster();
-    this.fastRaycaster.setMaxRange(LIDAR.MAX_RANGE);
-    
-    // Legacy Three.js raycaster (kept for potential fallback)
+    // Three.js raycaster - optimized settings
     this.raycaster = new THREE.Raycaster();
     this.raycaster.far = LIDAR.MAX_RANGE;
+    this.raycaster.firstHitOnly = true; // Stop after first hit (huge perf gain)
     
-    // Raycast targets (legacy, not used with FastRaycaster)
-    this.raycastTargets = [];
+    // Targets to raycast against
+    this.targets = [];
     
-    // Dense scan rays for obstacle detection
-    this.numScanRays = LIDAR.NUM_SCAN_RAYS;
-    this.numSpecialRays = 2; // nadir + zenith
-    this.numRays = this.numScanRays + this.numSpecialRays;
+    // Ray configuration
+    this.numRays = LIDAR.NUM_RAYS;
+    this.nadirIndex = this.numRays;
+    this.totalRays = this.numRays + 1;
     
-    // Ray indices for special rays
-    this.nadirIndex = this.numScanRays;     // Straight down
-    this.zenithIndex = this.numScanRays + 1; // Straight up
+    // Pre-calculate local ray directions
+    this.localDirections = this.generateRays();
     
-    // Closest obstacles output config
-    this.numClosestObstacles = LIDAR.NUM_CLOSEST_OBSTACLES;
-    this.minAngularSeparation = LIDAR.MIN_ANGULAR_SEPARATION;
+    // Reusable vectors
+    this._origin = new THREE.Vector3();
+    this._direction = new THREE.Vector3();
     
-    // Store latest raw readings (all scan rays)
-    this.distances = new Array(this.numRays).fill(LIDAR.MAX_RANGE);
-    this.hitPoints = [];
+    // Reusable intersects array (avoid GC)
+    this._intersects = [];
     
-    // Store closest obstacles: [{angle, distance}, ...]
-    this.closestObstacles = [];
+    // Store distances
+    this.distances = new Float32Array(this.totalRays).fill(LIDAR.MAX_RANGE);
     
-    // Pre-calculate ray directions (in local drone space)
-    this.rayDirections = this.calculateRayDirections();
-    
-    // Store world-space directions for visualization (updated each scan)
-    this.worldDirections = new Array(this.numRays);
-    for (let i = 0; i < this.numRays; i++) {
-      this.worldDirections[i] = new THREE.Vector3();
-    }
-    
-    // Visualization group (attached to drone, so moves with it)
+    // Visualization
     this.visualGroup = new THREE.Group();
-    this.visualGroup.name = 'lidar_visual';
+    this.visualGroup.name = 'lidar';
     this.visualGroup.visible = LIDAR.VISUALIZE;
-    
-    // Setup visualization geometry
-    this.setupVisualization();
-    
-    // Track visualization state independently from config
     this.visualizationEnabled = LIDAR.VISUALIZE;
     
-    // Reusable vectors for raycasting
-    this._direction = new THREE.Vector3();
-    this._origin = new THREE.Vector3();
-    this._endPoint = new THREE.Vector3();
-    
-    // Target line visualization
-    this.targetLine = null;
-    this.targetLineMaterial = null;
-    this.targetPosition = null;
-    this.targetVisible = false;
-    this.setupTargetLine();
+    this.setupVisualization();
   }
   
   /**
-   * Set raycast targets (legacy - for Three.js raycaster)
+   * Generate rays in forward cone (±30°)
    */
-  setRaycastTargets(targets) {
-    this.raycastTargets = targets;
-  }
-  
-  /**
-   * Set obstacle data for fast raycasting
-   * @param {Array} obstacles - [{type, x, z, radius, minY, maxY}, ...]
-   */
-  setObstacles(obstacles) {
-    this.fastRaycaster.clearObstacles();
-    this.fastRaycaster.addObstacles(obstacles);
-  }
-  
-  /**
-   * Set terrain height function for ground raycasting
-   */
-  setTerrainHeightFn(fn) {
-    this.fastRaycaster.setTerrainHeightFn(fn);
-  }
-  
-  /**
-   * Setup target direction line visualization
-   */
-  setupTargetLine() {
-    // Create line geometry with 2 points (drone to target)
-    const positions = new Float32Array(6); // 2 vertices * 3 components
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    
-    // Material with color that changes based on visibility
-    this.targetLineMaterial = new THREE.LineBasicMaterial({
-      color: 0x00ff00, // Green = visible
-      linewidth: 2,
-      transparent: true,
-      opacity: 0.8,
-    });
-    
-    this.targetLine = new THREE.Line(geometry, this.targetLineMaterial);
-    this.targetLine.name = 'target_line';
-    this.targetLine.visible = false; // Only show when lidar is on
-    this.visualGroup.add(this.targetLine);
-  }
-
-  /**
-   * Calculate all ray directions (in local drone space)
-   * Dense horizontal sweep + nadir + zenith
-   */
-  calculateRayDirections() {
+  generateRays() {
     const directions = [];
+    const n = this.numRays;
+    const halfFov = LIDAR.FOV / 2;
     
-    const hFov = LIDAR.HORIZONTAL_FOV;
-    const numScan = this.numScanRays;
-    
-    // Dense horizontal scan rays (single vertical layer at horizon)
-    for (let i = 0; i < numScan; i++) {
-      const horizontalAngle = -hFov / 2 + (i / Math.max(numScan - 1, 1)) * hFov;
-      
-      directions.push(new THREE.Vector3(
-        Math.sin(horizontalAngle),
-        0, // Horizontal plane only
-        Math.cos(horizontalAngle)
-      ).normalize());
+    for (let i = 0; i < n; i++) {
+      const angle = -halfFov + (i / (n - 1)) * LIDAR.FOV;
+      directions.push(new THREE.Vector3(Math.sin(angle), 0, -Math.cos(angle)));
     }
     
-    // Nadir ray (straight down)
+    // Nadir ray
     directions.push(new THREE.Vector3(0, -1, 0));
-    
-    // Zenith ray (straight up)
-    directions.push(new THREE.Vector3(0, 1, 0));
     
     return directions;
   }
   
   /**
-   * Calculate horizontal angle for a ray index (in local space)
+   * Set raycast targets and compute BVH for each geometry
    */
-  getRayAngle(rayIndex) {
-    if (rayIndex >= this.numScanRays) return null; // Special rays
-    const hFov = LIDAR.HORIZONTAL_FOV;
-    return -hFov / 2 + (rayIndex / Math.max(this.numScanRays - 1, 1)) * hFov;
-  }
-
-  /**
-   * Setup efficient visualization using single geometries
-   */
-  setupVisualization() {
-    // Create ray lines for the closest obstacles only (much more efficient)
-    // Each closest obstacle needs 2 vertices (start and end)
-    const numVisualRays = this.numClosestObstacles + this.numSpecialRays;
-    const rayPositions = new Float32Array(numVisualRays * 2 * 3);
-    const rayColors = new Float32Array(numVisualRays * 2 * 3);
-    
-    // Initialize colors
-    const rayColor = new THREE.Color(LIDAR.RAY_COLOR);
-    const nadirColor = new THREE.Color(0x00ffff); // Cyan for nadir
-    const zenithColor = new THREE.Color(0xffff00); // Yellow for zenith
-    
-    for (let i = 0; i < numVisualRays; i++) {
-      let color = rayColor;
-      if (i === this.numClosestObstacles) color = nadirColor;
-      else if (i === this.numClosestObstacles + 1) color = zenithColor;
-      
-      // Start vertex color
-      rayColors[i * 6 + 0] = color.r;
-      rayColors[i * 6 + 1] = color.g;
-      rayColors[i * 6 + 2] = color.b;
-      // End vertex color (same)
-      rayColors[i * 6 + 3] = color.r;
-      rayColors[i * 6 + 4] = color.g;
-      rayColors[i * 6 + 5] = color.b;
+  setRaycastTargets(targets) {
+    // Dispose old BVH trees
+    for (const target of this.targets) {
+      if (target.geometry?.boundsTree) {
+        target.geometry.disposeBoundsTree();
+      }
     }
     
-    const rayGeometry = new THREE.BufferGeometry();
-    rayGeometry.setAttribute('position', new THREE.BufferAttribute(rayPositions, 3));
-    rayGeometry.setAttribute('color', new THREE.BufferAttribute(rayColors, 3));
+    this.targets = targets;
     
-    const rayMaterial = new THREE.LineBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.7,
-    });
-    
-    this.rayLines = new THREE.LineSegments(rayGeometry, rayMaterial);
-    this.visualGroup.add(this.rayLines);
-    
-    // Create hit point spheres using InstancedMesh for efficiency
-    const sphereGeometry = new THREE.SphereGeometry(0.15, 8, 6);
-    const sphereMaterial = new THREE.MeshBasicMaterial({
-      color: LIDAR.HIT_COLOR,
-    });
-    
-    this.hitSpheres = new THREE.InstancedMesh(sphereGeometry, sphereMaterial, numVisualRays);
-    this.hitSpheres.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.visualGroup.add(this.hitSpheres);
-    
-    // Create special spheres for nadir/zenith with different colors
-    const nadirSphereGeometry = new THREE.SphereGeometry(0.2, 10, 8);
-    const nadirSphereMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-    this.nadirSphere = new THREE.Mesh(nadirSphereGeometry, nadirSphereMaterial);
-    this.nadirSphere.visible = false;
-    this.visualGroup.add(this.nadirSphere);
-    
-    const zenithSphereGeometry = new THREE.SphereGeometry(0.2, 10, 8);
-    const zenithSphereMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-    this.zenithSphere = new THREE.Mesh(zenithSphereGeometry, zenithSphereMaterial);
-    this.zenithSphere.visible = false;
-    this.visualGroup.add(this.zenithSphere);
-    
-    // Reusable matrix for instanced mesh updates
-    this._instanceMatrix = new THREE.Matrix4();
-    this._hiddenPosition = new THREE.Vector3(0, -1000, 0);
+    // Compute BVH for each target's geometry
+    for (const target of targets) {
+      if (target.geometry && !target.geometry.boundsTree) {
+        target.geometry.computeBoundsTree();
+      }
+    }
   }
-
+  
+  // Legacy compatibility
+  setObstacles() {}
+  setTerrainHeightFn() {}
+  
   /**
-   * Perform 3D LiDAR scan using FastRaycaster (optimized)
-   * Returns the N closest obstacles with minimum angular separation
+   * Perform LiDAR scan using Three.js Raycaster
+   * OPTIMIZED: reuses intersects array, uses firstHitOnly
    */
   scan() {
-    this.hitPoints = [];
+    const { x, y, z, yaw } = this.drone;
+    const cosYaw = Math.cos(yaw);
+    const sinYaw = Math.sin(yaw);
     
-    const droneX = this.drone.x;
-    const droneY = this.drone.y;
-    const droneZ = this.drone.z;
-    const droneYaw = this.drone.yaw;
+    this._origin.set(x, y, z);
     
-    const cosYaw = Math.cos(droneYaw);
-    const sinYaw = Math.sin(droneYaw);
-    
-    // Collect all horizontal hits with angles
-    const horizontalHits = [];
-    
-    // Scan all rays
-    for (let i = 0; i < this.numRays; i++) {
-      const localDir = this.rayDirections[i];
+    for (let i = 0; i < this.totalRays; i++) {
+      const local = this.localDirections[i];
       
-      // Transform direction from local to world space (rotate by yaw)
-      let worldDirX, worldDirY, worldDirZ;
-      if (i === this.nadirIndex || i === this.zenithIndex) {
-        worldDirX = localDir.x;
-        worldDirY = localDir.y;
-        worldDirZ = localDir.z;
+      // Transform to world space
+      if (i === this.nadirIndex) {
+        this._direction.copy(local);
       } else {
-        worldDirX = localDir.x * cosYaw + localDir.z * sinYaw;
-        worldDirY = localDir.y;
-        worldDirZ = -localDir.x * sinYaw + localDir.z * cosYaw;
+        this._direction.set(
+          local.x * cosYaw - local.z * sinYaw,
+          local.y,
+          local.x * sinYaw + local.z * cosYaw
+        );
       }
       
-      // Store world direction for external use
-      this.worldDirections[i].set(worldDirX, worldDirY, worldDirZ);
+      // Clear and reuse intersects array
+      this._intersects.length = 0;
+      this.raycaster.set(this._origin, this._direction);
+      this.raycaster.intersectObjects(this.targets, true, this._intersects);
       
-      // Perform fast raycast
-      const result = this.fastRaycaster.cast(
-        droneX, droneY, droneZ,
-        worldDirX, worldDirY, worldDirZ
-      );
-      
-      const hitDistance = result.distance;
-      
-      if (result.hit && result.point) {
-        this.hitPoints.push({
-          x: result.point.x,
-          y: result.point.y,
-          z: result.point.z,
-          distance: result.distance,
-          rayIndex: i,
-          isNadir: i === this.nadirIndex,
-          isZenith: i === this.zenithIndex,
-        });
-        
-        // Collect horizontal hits for closest obstacle selection
-        if (i < this.numScanRays) {
-          const angle = this.getRayAngle(i);
-          horizontalHits.push({
-            angle,
-            distance: hitDistance,
-            rayIndex: i,
-            hitPoint: result.point,
-            worldDir: { x: worldDirX, y: worldDirY, z: worldDirZ },
-          });
-        }
-      }
-      
-      this.distances[i] = hitDistance;
+      this.distances[i] = this._intersects.length > 0 
+        ? this._intersects[0].distance 
+        : LIDAR.MAX_RANGE;
     }
     
-    // Find N closest obstacles with minimum angular separation
-    this.closestObstacles = this.findClosestObstacles(horizontalHits);
-    
-    // Update visualization
-    this.updateVisualization(droneX, droneY, droneZ);
+    if (this.visualizationEnabled) {
+      this.updateVisualization(x, y, z, cosYaw, sinYaw);
+    }
     
     return this.distances;
   }
   
   /**
-   * Find N closest obstacles with minimum angular separation
-   * @param {Array} hits - All horizontal hits with angle and distance
-   * @returns {Array} - N closest obstacles [{angle, distance, dirX, dirZ}, ...]
+   * Setup visualization
    */
-  findClosestObstacles(hits) {
-    if (hits.length === 0) {
-      // No obstacles - return empty slots
-      return Array(this.numClosestObstacles).fill(null).map(() => ({
-        angle: 0,
-        distance: LIDAR.MAX_RANGE,
-        dirX: 0,
-        dirZ: 1,
-        hitPoint: null,
-      }));
+  setupVisualization() {
+    const positions = new Float32Array(this.totalRays * 6);
+    const colors = new Float32Array(this.totalRays * 6);
+    
+    const rayColor = new THREE.Color(LIDAR.RAY_COLOR);
+    const nadirColor = new THREE.Color(0x00ffff);
+    
+    for (let i = 0; i < this.totalRays; i++) {
+      const color = i === this.nadirIndex ? nadirColor : rayColor;
+      const idx = i * 6;
+      colors[idx] = colors[idx + 3] = color.r;
+      colors[idx + 1] = colors[idx + 4] = color.g;
+      colors[idx + 2] = colors[idx + 5] = color.b;
     }
     
-    // Sort by distance (closest first)
-    const sortedHits = [...hits].sort((a, b) => a.distance - b.distance);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     
-    const selected = [];
-    const minSepRad = this.minAngularSeparation;
+    this.rayLines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6,
+    }));
+    this.visualGroup.add(this.rayLines);
     
-    for (const hit of sortedHits) {
-      if (selected.length >= this.numClosestObstacles) break;
-      
-      // Check angular separation from already selected obstacles
-      let tooClose = false;
-      for (const sel of selected) {
-        const angleDiff = Math.abs(this.normalizeAngle(hit.angle - sel.angle));
-        if (angleDiff < minSepRad) {
-          tooClose = true;
-          break;
-        }
-      }
-      
-      if (!tooClose) {
-        // Calculate local direction (normalized)
-        const localDir = this.rayDirections[hit.rayIndex];
-        selected.push({
-          angle: hit.angle,
-          distance: hit.distance,
-          dirX: localDir.x, // Local X component (right is positive)
-          dirZ: localDir.z, // Local Z component (forward is positive)
-          hitPoint: hit.hitPoint,
-          worldDir: hit.worldDir,
-        });
-      }
-    }
+    // Hit spheres
+    const sphereGeom = new THREE.SphereGeometry(0.2, 6, 4);
+    const sphereMat = new THREE.MeshBasicMaterial({ color: LIDAR.HIT_COLOR });
+    this.hitSpheres = new THREE.InstancedMesh(sphereGeom, sphereMat, this.totalRays);
+    this.hitSpheres.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.visualGroup.add(this.hitSpheres);
     
-    // Fill remaining slots with max-range "no obstacle" entries
-    while (selected.length < this.numClosestObstacles) {
-      selected.push({
-        angle: 0,
-        distance: LIDAR.MAX_RANGE,
-        dirX: 0,
-        dirZ: 1,
-        hitPoint: null,
-      });
-    }
-    
-    return selected;
+    this._matrix = new THREE.Matrix4();
   }
   
   /**
-   * Normalize angle to [-PI, PI]
+   * Update visualization
    */
-  normalizeAngle(angle) {
-    while (angle > Math.PI) angle -= 2 * Math.PI;
-    while (angle < -Math.PI) angle += 2 * Math.PI;
-    return angle;
-  }
-  
-  /**
-   * Update visualization for closest obstacles
-   */
-  updateVisualization(droneX, droneY, droneZ) {
-    const shouldVisualize = this.visualizationEnabled;
-    if (!shouldVisualize) return;
+  updateVisualization(x, y, z, cosYaw, sinYaw) {
+    const positions = this.rayLines.geometry.attributes.position.array;
     
-    const rayPositions = this.rayLines.geometry.attributes.position.array;
-    const droneYaw = this.drone.yaw;
-    const cosYaw = Math.cos(droneYaw);
-    const sinYaw = Math.sin(droneYaw);
-    
-    // Visualize closest obstacles
-    for (let i = 0; i < this.numClosestObstacles; i++) {
-      const obs = this.closestObstacles[i];
-      const rayIdx = i * 6;
+    for (let i = 0; i < this.totalRays; i++) {
+      const local = this.localDirections[i];
+      const dist = this.distances[i];
+      const idx = i * 6;
       
-      // Start at drone
-      rayPositions[rayIdx + 0] = droneX;
-      rayPositions[rayIdx + 1] = droneY;
-      rayPositions[rayIdx + 2] = droneZ;
+      // Start
+      positions[idx] = x;
+      positions[idx + 1] = y;
+      positions[idx + 2] = z;
       
-      if (obs && obs.hitPoint) {
-        // End at hit point
-        rayPositions[rayIdx + 3] = obs.hitPoint.x;
-        rayPositions[rayIdx + 4] = obs.hitPoint.y;
-        rayPositions[rayIdx + 5] = obs.hitPoint.z;
-        
-        // Update hit sphere
-        this._instanceMatrix.setPosition(obs.hitPoint.x, obs.hitPoint.y, obs.hitPoint.z);
+      // Direction
+      let wx, wy, wz;
+      if (i === this.nadirIndex) {
+        wx = local.x; wy = local.y; wz = local.z;
       } else {
-        // No obstacle - extend to max range in forward direction
-        rayPositions[rayIdx + 3] = droneX + cosYaw * LIDAR.MAX_RANGE;
-        rayPositions[rayIdx + 4] = droneY;
-        rayPositions[rayIdx + 5] = droneZ + sinYaw * LIDAR.MAX_RANGE;
-        
-        this._instanceMatrix.setPosition(this._hiddenPosition.x, this._hiddenPosition.y, this._hiddenPosition.z);
+        wx = local.x * cosYaw - local.z * sinYaw;
+        wy = local.y;
+        wz = local.x * sinYaw + local.z * cosYaw;
       }
-      this.hitSpheres.setMatrixAt(i, this._instanceMatrix);
+      
+      // End
+      positions[idx + 3] = x + wx * dist;
+      positions[idx + 4] = y + wy * dist;
+      positions[idx + 5] = z + wz * dist;
+      
+      // Hit sphere
+      if (dist < LIDAR.MAX_RANGE) {
+        this._matrix.setPosition(x + wx * dist, y + wy * dist, z + wz * dist);
+      } else {
+        this._matrix.setPosition(0, -1000, 0);
+      }
+      this.hitSpheres.setMatrixAt(i, this._matrix);
     }
     
-    // Visualize nadir ray
-    const nadirVisIdx = this.numClosestObstacles;
-    rayPositions[nadirVisIdx * 6 + 0] = droneX;
-    rayPositions[nadirVisIdx * 6 + 1] = droneY;
-    rayPositions[nadirVisIdx * 6 + 2] = droneZ;
-    
-    const nadirDist = this.distances[this.nadirIndex];
-    const nadirHit = nadirDist < LIDAR.MAX_RANGE;
-    rayPositions[nadirVisIdx * 6 + 3] = droneX;
-    rayPositions[nadirVisIdx * 6 + 4] = droneY - nadirDist;
-    rayPositions[nadirVisIdx * 6 + 5] = droneZ;
-    
-    if (nadirHit) {
-      this.nadirSphere.position.set(droneX, droneY - nadirDist, droneZ);
-      this.nadirSphere.visible = true;
-    } else {
-      this.nadirSphere.visible = false;
-    }
-    
-    // Visualize zenith ray
-    const zenithVisIdx = this.numClosestObstacles + 1;
-    rayPositions[zenithVisIdx * 6 + 0] = droneX;
-    rayPositions[zenithVisIdx * 6 + 1] = droneY;
-    rayPositions[zenithVisIdx * 6 + 2] = droneZ;
-    
-    const zenithDist = this.distances[this.zenithIndex];
-    const zenithHit = zenithDist < LIDAR.MAX_RANGE;
-    rayPositions[zenithVisIdx * 6 + 3] = droneX;
-    rayPositions[zenithVisIdx * 6 + 4] = droneY + zenithDist;
-    rayPositions[zenithVisIdx * 6 + 5] = droneZ;
-    
-    if (zenithHit) {
-      this.zenithSphere.position.set(droneX, droneY + zenithDist, droneZ);
-      this.zenithSphere.visible = true;
-    } else {
-      this.zenithSphere.visible = false;
-    }
-    
-    // Mark geometries as needing update
     this.rayLines.geometry.attributes.position.needsUpdate = true;
     this.hitSpheres.instanceMatrix.needsUpdate = true;
-    
-    // Update target line
-    this.updateTargetLine(droneX, droneY, droneZ);
   }
   
-  /**
-   * Update target direction line
-   */
-  updateTargetLine(droneX, droneY, droneZ) {
-    if (!this.targetPosition || !this.targetLine) return;
-    
-    const positions = this.targetLine.geometry.attributes.position.array;
-    
-    // Start at drone position
-    positions[0] = droneX;
-    positions[1] = droneY;
-    positions[2] = droneZ;
-    
-    // End at target position
-    positions[3] = this.targetPosition.x;
-    positions[4] = this.targetPosition.y;
-    positions[5] = this.targetPosition.z;
-    
-    this.targetLine.geometry.attributes.position.needsUpdate = true;
-    
-    // Update color based on visibility
-    // Green = can see target (path is clear)
-    // Red = cannot see target (obstacles in way)
-    if (this.targetVisible) {
-      this.targetLineMaterial.color.setHex(0x00ff88); // Bright green
-      this.targetLineMaterial.opacity = 0.9;
-    } else {
-      this.targetLineMaterial.color.setHex(0xff4444); // Red
-      this.targetLineMaterial.opacity = 0.6;
-    }
-  }
-  
-  /**
-   * Set target position for visualization
-   * @param {number} x - Target X position
-   * @param {number} y - Target Y position
-   * @param {number} z - Target Z position
-   */
-  setTargetPosition(x, y, z) {
-    this.targetPosition = { x, y, z };
-  }
-  
-  /**
-   * Set whether target is visible (for line color)
-   * @param {boolean} visible - Whether target is visible
-   */
-  setTargetVisible(visible) {
-    this.targetVisible = visible;
-  }
-
-  /**
-   * Get closest obstacles data for RL observation
-   * Returns flat array: [dirX1, dirZ1, dist1, dirX2, dirZ2, dist2, ...]
-   * Directions are normalized local coordinates
-   * Distances are normalized to [0, 1]
-   */
-  getClosestObstaclesFlat() {
-    const result = [];
-    for (const obs of this.closestObstacles) {
-      result.push(obs.dirX);           // Local X direction
-      result.push(obs.dirZ);           // Local Z direction
-      result.push(obs.distance / LIDAR.MAX_RANGE); // Normalized distance
+  // Getters
+  getNormalizedDistances() {
+    const result = new Float32Array(this.totalRays);
+    for (let i = 0; i < this.totalRays; i++) {
+      result[i] = this.distances[i] / LIDAR.MAX_RANGE;
     }
     return result;
   }
   
-  /**
-   * Get closest obstacles as objects
-   * @returns {Array} - [{angle, distance, dirX, dirZ}, ...]
-   */
-  getClosestObstacles() {
-    return this.closestObstacles;
-  }
-
-  /**
-   * Get normalized distances (0-1 range) - legacy, returns all scan rays
-   */
-  getNormalizedDistances() {
-    return this.distances.map(d => d / LIDAR.MAX_RANGE);
-  }
-
-  /**
-   * Get raw distances - legacy, returns all scan rays
-   */
-  getDistances() {
-    return this.distances;
-  }
-
-  /**
-   * Get nadir (downward) distance
-   */
-  getNadirDistance() {
-    return this.distances[this.nadirIndex];
-  }
-
-  /**
-   * Get zenith (upward) distance
-   */
-  getZenithDistance() {
-    return this.distances[this.zenithIndex];
-  }
-
-  /**
-   * Get all hit points from last scan
-   */
-  getHitPoints() {
-    return this.hitPoints;
-  }
-
-  /**
-   * Get minimum distance across all horizontal rays
-   */
+  getDistances() { return this.distances; }
+  getNadirDistance() { return this.distances[this.nadirIndex]; }
+  
   getMinDistance() {
     let min = LIDAR.MAX_RANGE;
-    for (let i = 0; i < this.numScanRays; i++) {
+    for (let i = 0; i < this.numRays; i++) {
       if (this.distances[i] < min) min = this.distances[i];
     }
     return min;
   }
-
-  /**
-   * Get minimum distance in forward direction (center rays)
-   */
+  
   getForwardMinDistance() {
-    const numScan = this.numScanRays;
-    const hCenter = Math.floor(numScan / 2);
-    const hRange = Math.max(1, Math.floor(numScan / 8)); // Check ~25% of rays around center
-    
-    let minDist = LIDAR.MAX_RANGE;
-    for (let h = hCenter - hRange; h <= hCenter + hRange; h++) {
-      if (h >= 0 && h < numScan) {
-        if (this.distances[h] < minDist) {
-          minDist = this.distances[h];
-        }
-      }
-    }
-    
-    return minDist;
+    // All rays are forward-ish now
+    return this.getMinDistance();
   }
-
-  /**
-   * Check if forward path is clear
-   */
+  
   isPathClear(minClearance = 3) {
-    return this.getForwardMinDistance() > minClearance;
+    return this.getMinDistance() > minClearance;
   }
-
-  /**
-   * Get the visualization group (to add to scene)
-   */
-  getVisualGroup() {
-    return this.visualGroup;
-  }
-
-  /**
-   * Enable or disable visualization
-   */
+  
+  getVisualGroup() { return this.visualGroup; }
+  
   setVisualizationEnabled(enabled) {
     this.visualizationEnabled = enabled;
     this.visualGroup.visible = enabled;
-    
-    // Show/hide target line with lidar
-    if (this.targetLine) {
-      this.targetLine.visible = enabled;
-    }
-    
-    // Force an immediate scan update if enabling
-    if (enabled) {
-      this.frameCounter = this.scanInterval - 1;
-    }
-  }
-
-  /**
-   * Get number of scan rays (excluding nadir/zenith)
-   */
-  getNumScanRays() {
-    return this.numScanRays;
-  }
-
-  /**
-   * Get total number of rays (including nadir/zenith)
-   */
-  getNumRays() {
-    return this.numRays;
   }
   
-  /**
-   * Get number of closest obstacles tracked
-   */
-  getNumClosestObstacles() {
-    return this.numClosestObstacles;
-  }
+  getNumRays() { return this.numRays; }
+  getTotalRays() { return this.totalRays; }
+  
+  // Legacy
+  getNumScanRays() { return this.numRays; }
+  getNumClosestObstacles() { return this.numRays; }
+  getClosestObstaclesFlat() { return this.getNormalizedDistances(); }
+  getClosestObstacles() { return []; }
+  getZenithDistance() { return LIDAR.MAX_RANGE; }
+  getHitPoints() { return []; }
+  setTargetPosition() {}
+  setTargetVisible() {}
 }

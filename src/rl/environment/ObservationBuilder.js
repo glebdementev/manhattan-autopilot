@@ -1,20 +1,20 @@
 /**
- * Observation Builder - includes velocity for proper control
+ * Observation Builder - uses 16-ray forward cone lidar
  * 
- * Observation (12 values):
+ * Observation (24 values):
  * - [0-2] Target direction (X, Y, Z) - normalized unit vector
  * - [3-5] Current velocity (vx, vy, vz) - normalized to [-1, 1]
- * - [6-9] 4 closest obstacle distances (normalized 0-1)
- * - [10] Nadir (ground) distance (normalized)
- * - [11] Zenith (ceiling) distance (normalized)
+ * - [6-21] 16 lidar ray distances (normalized 0-1)
+ * - [22] Nadir (ground) distance (normalized)
+ * - [23] Target distance (normalized)
  */
 
-import { DRONE, LIDAR } from '../../config.js';
+import { DRONE, LIDAR, RL_CONFIG } from '../../config.js';
 
 export class ObservationBuilder {
   constructor() {
-    // 3 (target dir) + 3 (velocity) + 4 (obstacles) + 1 (nadir) + 1 (zenith) = 12
-    this.observationSize = 12;
+    // 3 (target dir) + 3 (velocity) + 16 (lidar) + 1 (nadir) + 1 (target dist) = 24
+    this.observationSize = 24;
   }
   
   /**
@@ -39,20 +39,22 @@ export class ObservationBuilder {
     const velY = droneState.vy / DRONE.MAX_SPEED;
     const velZ = droneState.vz / DRONE.MAX_SPEED;
     
-    // Obstacle distances (normalized to [0, 1])
-    const obstacles = lidar.getClosestObstacles();
-    const obsDists = obstacles.map(o => o.distance / LIDAR.MAX_RANGE);
+    // All 64 lidar rays (normalized)
+    const lidarDists = lidar.getNormalizedDistances();
+    const rayDists = Array.from(lidarDists.slice(0, LIDAR.NUM_RAYS));
     
-    // Nadir and zenith (normalized)
+    // Nadir distance
     const nadir = lidar.getNadirDistance() / LIDAR.MAX_RANGE;
-    const zenith = lidar.getZenithDistance() / LIDAR.MAX_RANGE;
+    
+    // Target distance (normalized)
+    const targetDist = Math.min(dist / RL_CONFIG.MAX_TARGET_DISTANCE, 1);
     
     return [
       dirX, dirY, dirZ,           // Target direction [0-2]
       velX, velY, velZ,           // Velocity [3-5]
-      ...obsDists,                // 4 obstacle distances [6-9]
-      nadir,                      // Ground distance [10]
-      zenith,                     // Ceiling distance [11]
+      ...rayDists,                // 64 lidar distances [6-69]
+      nadir,                      // Ground distance [70]
+      targetDist,                 // Target distance [71]
     ];
   }
   
@@ -72,12 +74,16 @@ export class ObservationBuilder {
       dirZ = dz / dist;
     }
     
+    // Fill with max range (no obstacles)
+    const rayDists = new Array(LIDAR.NUM_RAYS).fill(1);
+    const targetDist = Math.min(dist / RL_CONFIG.MAX_TARGET_DISTANCE, 1);
+    
     return [
       dirX, dirY, dirZ,
       0, 0, 0,           // Zero velocity
-      1, 1, 1, 1,        // No obstacles (max range)
+      ...rayDists,       // 64 rays at max range
       1,                 // Safe ground distance
-      1,                 // Safe ceiling distance
+      targetDist,        // Target distance
     ];
   }
   

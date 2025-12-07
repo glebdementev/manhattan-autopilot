@@ -42,7 +42,6 @@ export class RewardCalculator {
       hadCollision,
       minLidarDist,
       nadirDistance,
-      zenithDistance,
     } = params;
     
     let reward = 0;
@@ -68,25 +67,12 @@ export class RewardCalculator {
     reward += progressReward;
     breakdown.progress = progressReward;
     
-    // Debug: log reward every 500 steps
-    this.debugCounter = (this.debugCounter || 0) + 1;
-    if (this.debugCounter <= 10 || this.debugCounter % 500 === 0) {
-      console.log(`[REWARD] prev=${prevDistance.toFixed(2)} curr=${currentDistance.toFixed(2)} delta=${distanceDelta.toFixed(3)} reward=${progressReward.toFixed(3)}`);
-    }
-    
     // 4. PROXIMITY PENALTY - CRITICAL ZONE ONLY (< 1m)
-    // Find minimum distance across all sensors
     let minDist = minLidarDist || Infinity;
-    
-    // Also check nadir (ground) and zenith (ceiling) if provided
     if (nadirDistance !== undefined && nadirDistance < minDist) {
       minDist = nadirDistance;
     }
-    if (zenithDistance !== undefined && zenithDistance < minDist) {
-      minDist = zenithDistance;
-    }
     
-    // Calculate proximity penalty (only if < 1m)
     const proximityPenalty = this.calculateProximityPenalty(minDist);
     if (proximityPenalty < 0) {
       reward += proximityPenalty;
