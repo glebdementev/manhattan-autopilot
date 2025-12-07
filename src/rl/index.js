@@ -7,6 +7,7 @@
 // Main classes
 export { RLAgent } from './RLAgent.js';
 export { RLEnvironment } from './RLEnvironment.js';
+export { OfflineTrainer } from './OfflineTrainer.js';
 
 // Networks
 export { PolicyNetwork, ValueNetwork } from './networks/index.js';

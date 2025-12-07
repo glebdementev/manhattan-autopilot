@@ -1,10 +1,14 @@
 /**
  * UI Manager - Main coordinator for all user interface elements
- * Delegates to specialized modules for specific functionality
+ * 
+ * Modes:
+ * - Simulation: Manual drone + optional ghost RL drone (when model loaded)
+ * - Training: Offline training screen with progress stats
  */
 
 import { createUIContainer } from './UIElements.js';
 import { SplashScreens } from './SplashScreens.js';
+import { TrainingScreen } from './TrainingScreen.js';
 import { EventEmitter } from './EventEmitter.js';
 import * as StatsDisplay from './StatsDisplay.js';
 
@@ -14,6 +18,8 @@ export class UIManager extends EventEmitter {
     
     this.elements = {};
     this.splashScreens = null;
+    this.trainingScreen = null;
+    this.hasLoadedModel = false;
     
     this.createUI();
     this.setupEventListeners();
@@ -28,11 +34,15 @@ export class UIManager extends EventEmitter {
     
     // Create splash screens
     this.splashScreens = new SplashScreens();
+    
+    // Create training screen
+    this.trainingScreen = new TrainingScreen();
+    this.trainingScreen.onStop = () => this.emit('stopTraining');
+    this.trainingScreen.onDownload = () => this.emit('downloadModel');
   }
 
   /**
    * Show collision splash screen
-   * @param {string} type - Type of collision
    */
   showCollisionSplash(type) {
     this.splashScreens.showCollision(type);
@@ -61,7 +71,6 @@ export class UIManager extends EventEmitter {
 
   /**
    * Show reward indicator
-   * @param {number} reward - Reward value
    */
   showRewardIndicator(reward) {
     StatsDisplay.showRewardIndicator(this.elements, reward);
@@ -80,14 +89,8 @@ export class UIManager extends EventEmitter {
       this.emit('reset');
     });
     
-    this.elements.btnResetTraining.addEventListener('click', () => {
-      if (confirm('Reset all training progress? This cannot be undone.')) {
-        this.emit('resetTraining');
-      }
-    });
-    
-    this.elements.btnExport.addEventListener('click', () => {
-      this.emit('exportModel');
+    this.elements.btnTrain.addEventListener('click', () => {
+      this.emit('startTraining');
     });
     
     this.elements.btnImport.addEventListener('click', () => {
@@ -102,13 +105,6 @@ export class UIManager extends EventEmitter {
       }
     });
     
-    // Radio buttons - driver mode
-    document.querySelectorAll('input[name="driver-mode"]').forEach(radio => {
-      radio.addEventListener('change', (e) => {
-        this.emit('driverModeChange', e.target.value);
-      });
-    });
-    
     // Radio buttons - camera target
     document.querySelectorAll('input[name="camera-target"]').forEach(radio => {
       radio.addEventListener('change', (e) => {
@@ -117,14 +113,6 @@ export class UIManager extends EventEmitter {
     });
     
     // Checkboxes
-    this.elements.trainingToggle.addEventListener('change', (e) => {
-      this.emit('trainingToggle', e.target.checked);
-    });
-    
-    this.elements.learnFromManualToggle.addEventListener('change', (e) => {
-      this.emit('learnFromManualToggle', e.target.checked);
-    });
-    
     this.elements.lidarToggle.addEventListener('change', (e) => {
       this.emit('lidarToggle', e.target.checked);
     });
@@ -141,78 +129,77 @@ export class UIManager extends EventEmitter {
 
   /**
    * Update drone stats display
-   * @param {number} speed - Current speed
-   * @param {number} altitude - Current altitude
-   * @param {number} distToTarget - Distance to target
    */
   updateDroneStats(speed, altitude, distToTarget) {
     StatsDisplay.updateDroneStats(this.elements, speed, altitude, distToTarget);
   }
 
   /**
-   * Update RL training stats
-   * @param {Object} stats - RL stats object
+   * Update ghost drone stats
    */
-  updateRLStats(stats) {
-    StatsDisplay.updateRLStats(this.elements, stats);
-  }
-
-  /**
-   * Update agent stats
-   * @param {Object} stats - Agent stats object
-   */
-  updateAgentStats(stats) {
-    StatsDisplay.updateAgentStats(this.elements, stats);
-  }
-
-  /**
-   * Update navigation status
-   * @param {number} distToTarget - Distance to target
-   * @param {string} status - Navigation status text
-   */
-  updateNavigation(distToTarget, status) {
-    StatsDisplay.updateNavigation(this.elements, distToTarget, status);
-  }
-
-  /**
-   * Set training status message
-   * @param {string} message - Status message
-   */
-  setTrainingStatus(message) {
-    StatsDisplay.setTrainingStatus(this.elements, message);
-  }
-
-  /**
-   * Update model status display
-   * @param {string} status - Model status text
-   */
-  setModelStatus(status) {
-    StatsDisplay.setModelStatus(this.elements, status);
-  }
-
-  /**
-   * Set driver mode programmatically
-   * @param {string} mode - Mode to set ('rl' or 'manual')
-   */
-  setDriverMode(mode) {
-    const radio = document.querySelector(`input[name="driver-mode"][value="${mode}"]`);
-    if (radio) {
-      radio.checked = true;
+  updateGhostStats(distToTarget, status = 'Active') {
+    if (this.elements.ghostDistValue) {
+      this.elements.ghostDistValue.textContent = distToTarget.toFixed(1);
+    }
+    if (this.elements.ghostStatus) {
+      this.elements.ghostStatus.textContent = status;
     }
   }
 
   /**
-   * Get current driver mode
-   * @returns {string} Current mode ('rl' or 'manual')
+   * Set model loaded state - shows ghost drone UI
    */
-  getDriverMode() {
-    const radio = document.querySelector('input[name="driver-mode"]:checked');
-    return radio ? radio.value : 'rl';
+  setModelLoaded(loaded) {
+    this.hasLoadedModel = loaded;
+    
+    // Show/hide ghost section
+    if (this.elements.ghostSection) {
+      this.elements.ghostSection.style.display = loaded ? 'block' : 'none';
+    }
+    
+    // Show/hide camera section
+    if (this.elements.cameraSection) {
+      this.elements.cameraSection.style.display = loaded ? 'block' : 'none';
+    }
+    
+    // Update model status
+    if (this.elements.modelStatus) {
+      this.elements.modelStatus.textContent = loaded ? 'Loaded' : 'No model';
+    }
   }
-  
+
+  /**
+   * Show training screen
+   */
+  showTrainingScreen() {
+    this.trainingScreen.show();
+    this.trainingScreen.clearLog();
+    this.trainingScreen.log('Training initialized...', 'info');
+  }
+
+  /**
+   * Hide training screen
+   */
+  hideTrainingScreen() {
+    this.trainingScreen.hide();
+  }
+
+  /**
+   * Update training screen stats
+   */
+  updateTrainingStats(stats) {
+    this.trainingScreen.updateStats(stats);
+  }
+
+  /**
+   * Add training log entry
+   */
+  logTraining(message, type = 'default') {
+    this.trainingScreen.log(message, type);
+  }
+
   /**
    * Get current camera target
-   * @returns {string} Current target ('manual' or 'ghost')
    */
   getCameraTarget() {
     const radio = document.querySelector('input[name="camera-target"]:checked');
@@ -221,7 +208,6 @@ export class UIManager extends EventEmitter {
   
   /**
    * Set camera target programmatically
-   * @param {string} target - Target to set ('manual' or 'ghost')
    */
   setCameraTarget(target) {
     const radio = document.querySelector(`input[name="camera-target"][value="${target}"]`);
@@ -229,24 +215,20 @@ export class UIManager extends EventEmitter {
       radio.checked = true;
     }
   }
-  
+
   /**
-   * Show/hide camera section based on mode
-   * @param {boolean} show - Whether to show the section
+   * Set model status display
    */
-  setCameraSectionVisible(show) {
-    const section = document.getElementById('camera-section');
-    if (section) {
-      section.style.display = show ? 'block' : 'none';
+  setModelStatus(status) {
+    if (this.elements.modelStatus) {
+      this.elements.modelStatus.textContent = status;
     }
   }
 
   /**
-   * Check if training is enabled
-   * @returns {boolean}
+   * Check if training screen is visible
    */
-  isTrainingEnabled() {
-    return this.elements.trainingToggle.checked;
+  isTrainingScreenVisible() {
+    return this.trainingScreen.isVisible;
   }
-
 }
