@@ -1,6 +1,12 @@
 /**
  * Drone - flying box with 6-axis movement
- * Simple physics model: no pitch/roll, just position-based movement
+ * 
+ * Physics model:
+ * - Controls are in LOCAL coordinates (relative to drone facing)
+ * - thrustZ > 0 = forward (direction drone is facing)
+ * - thrustX > 0 = strafe right
+ * - thrustY > 0 = up
+ * - Velocity has inertia (drag-based deceleration)
  * 
  * Uses CollisionSystem for robust collision detection:
  * - Three.js Box3 for accurate AABB collision
@@ -13,23 +19,24 @@ import { CollisionSystem } from '../collision/index.js';
 
 export class Drone {
   constructor() {
-    // Position state
+    // Position state (world coordinates)
     this.x = 0;
     this.y = 5;
     this.z = 0;
     
-    // Velocity state
+    // Velocity state (world coordinates)
     this.vx = 0;
     this.vy = 0;
     this.vz = 0;
     
-    // Facing direction (yaw only, for visual orientation)
+    // Facing direction (yaw only)
     this.yaw = 0;
     
-    // Control inputs (thrust in each axis, -1 to 1)
-    this.thrustX = 0;  // Left/Right
-    this.thrustY = 0;  // Up/Down
-    this.thrustZ = 0;  // Forward/Back
+    // Control inputs in LOCAL coordinates (-1 to 1)
+    // These are relative to drone's facing direction
+    this.thrustX = 0;  // Strafe: negative=left, positive=right
+    this.thrustY = 0;  // Vertical: negative=down, positive=up
+    this.thrustZ = 0;  // Forward/Back: negative=back, positive=forward
     
     // Three.js mesh
     this.mesh = this.createMesh();
@@ -152,7 +159,13 @@ export class Drone {
 
   /**
    * Update drone physics with swept collision detection
-   * Uses CollisionSystem for robust collision detection
+   * 
+   * Controls are in LOCAL coordinates:
+   * - thrustZ > 0 pushes drone forward (in direction of yaw)
+   * - thrustX > 0 pushes drone right (perpendicular to yaw)
+   * - thrustY > 0 pushes drone up
+   * 
+   * Physics has inertia - velocity persists and decays with drag
    */
   update(dt) {
     // If frozen from collision, do nothing
@@ -183,15 +196,29 @@ export class Drone {
       return;
     }
     
-    // Calculate acceleration from thrust (no gravity)
-    const accelX = this.thrustX * DRONE.MAX_ACCELERATION;
-    const accelZ = this.thrustZ * DRONE.MAX_ACCELERATION;
-    const accelY = this.thrustY * DRONE.MAX_ACCELERATION;
+    // Convert LOCAL thrust to WORLD acceleration
+    // Local Z (forward) maps to world based on yaw
+    // Local X (right) maps to world based on yaw
+    const cosYaw = Math.cos(this.yaw);
+    const sinYaw = Math.sin(this.yaw);
     
-    // Update velocity (no drag/inertia)
-    this.vx = accelX * dt * 10;
-    this.vy = accelY * dt * 10;
-    this.vz = accelZ * dt * 10;
+    // Local to world transformation for thrust
+    // Forward (local +Z) -> world: (sin(yaw), 0, cos(yaw))
+    // Right (local +X) -> world: (cos(yaw), 0, -sin(yaw))
+    const worldAccelX = (this.thrustZ * sinYaw + this.thrustX * cosYaw) * DRONE.MAX_ACCELERATION;
+    const worldAccelZ = (this.thrustZ * cosYaw - this.thrustX * sinYaw) * DRONE.MAX_ACCELERATION;
+    const worldAccelY = this.thrustY * DRONE.MAX_ACCELERATION;
+    
+    // Apply acceleration to velocity (with inertia)
+    this.vx += worldAccelX * dt;
+    this.vy += worldAccelY * dt;
+    this.vz += worldAccelZ * dt;
+    
+    // Apply drag (creates inertia feel)
+    const drag = DRONE.DRAG_COEFFICIENT;
+    this.vx *= (1 - drag * dt);
+    this.vy *= (1 - drag * dt);
+    this.vz *= (1 - drag * dt);
     
     // Clamp speed
     const currentSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy + this.vz * this.vz);
@@ -245,16 +272,8 @@ export class Drone {
     // Track distance
     this.distanceTraveled += moveDistance;
     
-    // Update yaw to face movement direction (if moving horizontally)
-    const horizontalSpeed = Math.sqrt(this.vx * this.vx + this.vz * this.vz);
-    if (horizontalSpeed > 0.5) {
-      const targetYaw = Math.atan2(this.vx, this.vz);
-      // Smooth yaw transition
-      let yawDiff = targetYaw - this.yaw;
-      while (yawDiff > Math.PI) yawDiff -= 2 * Math.PI;
-      while (yawDiff < -Math.PI) yawDiff += 2 * Math.PI;
-      this.yaw += yawDiff * 0.1;
-    }
+    // Yaw is now FIXED - drone doesn't auto-rotate to face movement
+    // The agent must learn to control direction via thrust
     
     // Update mesh
     this.updateMesh();
@@ -333,13 +352,20 @@ export class Drone {
   
   /**
    * Make drone face a target position
-   * @param {number} targetX - Target X position
-   * @param {number} targetZ - Target Z position
+   * Sets yaw so that drone's forward direction (+Z local) points at target
+   * @param {number} targetX - Target X position in world coords
+   * @param {number} targetZ - Target Z position in world coords
    */
   lookAt(targetX, targetZ) {
     const dx = targetX - this.x;
     const dz = targetZ - this.z;
-    this.yaw = Math.atan2(dx, dz);
+    
+    // Only update yaw if target is not at same position
+    if (Math.abs(dx) > 0.001 || Math.abs(dz) > 0.001) {
+      // atan2(dx, dz) gives angle where +Z is 0, +X is PI/2
+      this.yaw = Math.atan2(dx, dz);
+    }
+    
     this.updateMesh();
   }
 
@@ -354,28 +380,55 @@ export class Drone {
 
   /**
    * Get current state vector
+   * Includes both world and local velocities
    */
   getState() {
     const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy + this.vz * this.vz);
+    const localVel = this.getLocalVelocity();
     
     return {
+      // World position
       x: this.x,
       y: this.y,
       z: this.z,
+      // World velocity
       vx: this.vx,
       vy: this.vy,
       vz: this.vz,
+      // Local velocity (relative to drone facing)
+      localVx: localVel.x,  // Right/left speed
+      localVy: localVel.y,  // Up/down speed
+      localVz: localVel.z,  // Forward/back speed
+      // Speed
       speed: speed,
       normalizedSpeed: speed / DRONE.MAX_SPEED,
+      // Orientation
       yaw: this.yaw,
+      // Current controls
       thrustX: this.thrustX,
       thrustY: this.thrustY,
       thrustZ: this.thrustZ,
     };
   }
+  
+  /**
+   * Get velocity in LOCAL coordinates (relative to drone facing)
+   * localVz > 0 means moving forward
+   * localVx > 0 means moving right
+   */
+  getLocalVelocity() {
+    const cos = Math.cos(-this.yaw);
+    const sin = Math.sin(-this.yaw);
+    
+    return {
+      x: this.vx * cos - this.vz * sin,  // Right/left
+      y: this.vy,                          // Up/down (same in both frames)
+      z: this.vx * sin + this.vz * cos,   // Forward/back
+    };
+  }
 
   /**
-   * Get forward direction vector (based on yaw)
+   * Get forward direction vector (based on yaw) in world coords
    */
   getForwardVector() {
     return {

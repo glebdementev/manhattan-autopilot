@@ -1,15 +1,19 @@
 /**
  * Reinforcement Learning Environment for Drone Navigation
  * 
+ * ALL observations and actions are in LOCAL coordinates (relative to drone facing)
+ * 
  * Observation Space:
- * - Lidar distances (normalized 0-1): NUM_HORIZONTAL_RAYS * NUM_VERTICAL_RAYS values
- * - Velocity (normalized): vx, vy, vz
- * - Target direction (unit vector): dx, dy, dz
+ * - Lidar distances (normalized 0-1): in LOCAL coords (forward = +Z)
+ * - Velocity (normalized, LOCAL coords): vx (right), vy (up), vz (forward)
+ * - Target direction (unit vector, LOCAL coords): dx (right), dy (up), dz (forward)
  * - Distance to target (normalized): 1 value
  * - Can see target: 1 value (binary)
  * 
- * Action Space:
- * - Continuous: [thrustX, thrustY, thrustZ] each in range [-1, 1]
+ * Action Space (LOCAL coords):
+ * - thrustX: strafe left (-1) / right (+1)
+ * - thrustY: down (-1) / up (+1)
+ * - thrustZ: backward (-1) / forward (+1)
  */
 
 import { LIDAR } from '../config.js';
@@ -66,25 +70,30 @@ export class RLEnvironment {
    * Reset environment for new episode
    */
   reset() {
-    // Reset drone to spawn position
-    const spawnPos = this.forest.findSpawnPosition();
+    // Reset drone state completely
     this.drone.reset();
+    
+    // Set drone to spawn position
+    const spawnPos = this.forest.findSpawnPosition();
     this.drone.setPosition(spawnPos.x, spawnPos.y, spawnPos.z);
     
-    // Generate new target
+    // Generate new target BEFORE setting drone orientation
     const state = this.drone.getState();
     this.targetManager.generate(state.x, state.z);
     
-    // Make drone face the target
+    // Make drone face the target (AFTER target is generated)
     const target = this.targetManager.getPosition();
     this.drone.lookAt(target.x, target.z);
+    
+    // Force mesh update to ensure visual matches state
+    this.drone.updateMesh();
     
     // Reset episode state
     this.episodeStats.startEpisode();
     this.rewardCalculator.reset(); // Reset position history for stagnation detection
     this.previousDistanceToTarget = this.getDistanceToTarget();
     
-    // Initial lidar scan
+    // Initial lidar scan (AFTER drone orientation is set)
     this.lidar.scan(this.raycastTargets);
     
     // Get initial observation
@@ -152,11 +161,12 @@ export class RLEnvironment {
   }
   
   /**
-   * Get current observation
+   * Get current observation (all in LOCAL coordinates)
    */
   getObservation() {
     const state = this.drone.getState();
     const lidarDistances = this.lidar.getDistances();
+    // Use LOCAL coordinates for target direction (matches local thrust controls)
     const targetDir = this.getTargetDirection();
     const distToTarget = this.getDistanceToTarget();
     const canSee = this.canSeeTarget();

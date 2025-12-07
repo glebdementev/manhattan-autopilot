@@ -2,12 +2,17 @@
  * Observation Builder for RL Environment
  * Constructs observation vectors from drone state, lidar, and target info
  * 
+ * ALL values are in LOCAL coordinates (relative to drone facing direction)
+ * 
  * Observation Space:
- * - Lidar distances (normalized 0-1): NUM_HORIZONTAL_RAYS * NUM_VERTICAL_RAYS values
- * - Velocity (normalized): vx, vy, vz
- * - Target direction (unit vector): dx, dy, dz
+ * - Lidar distances (normalized 0-1): in local coords (forward = +Z)
+ * - Velocity (normalized, LOCAL coords): vx (right), vy (up), vz (forward)
+ * - Target direction (unit vector, LOCAL coords): dx (right), dy (up), dz (forward)
  * - Distance to target (normalized): 1 value
  * - Can see target: 1 value (binary)
+ * 
+ * This matches the LOCAL coordinate action space:
+ * - thrustZ > 0 = forward, thrustX > 0 = right, thrustY > 0 = up
  */
 
 import { LIDAR, DRONE, RL_CONFIG } from '../../config.js';
@@ -21,23 +26,23 @@ export class ObservationBuilder {
   }
   
   /**
-   * Build observation vector
-   * @param {Object} droneState - Drone state { x, y, z, vx, vy, vz, ... }
-   * @param {Array} lidarDistances - Array of lidar distance readings
-   * @param {Object} targetDir - Target direction in local coords { x, y, z }
+   * Build observation vector (all in LOCAL coordinates)
+   * @param {Object} droneState - Drone state with localVx, localVy, localVz
+   * @param {Array} lidarDistances - Array of lidar distance readings (already in local coords)
+   * @param {Object} targetDir - Target direction in LOCAL coords { x, y, z }
    * @param {number} distToTarget - Distance to target
    * @param {boolean} canSeeTarget - Whether target is visible
    * @returns {Array} - Observation vector
    */
   build(droneState, lidarDistances, targetDir, distToTarget, canSeeTarget) {
-    // Normalize lidar distances
+    // Normalize lidar distances (already in local coords from Lidar)
     const normalizedLidar = lidarDistances.map(d => d / LIDAR.MAX_RANGE);
     
-    // Normalize velocity
+    // Normalize LOCAL velocity
     const normalizedVel = [
-      droneState.vx / DRONE.MAX_SPEED,
-      droneState.vy / DRONE.MAX_SPEED,
-      droneState.vz / DRONE.MAX_SPEED,
+      droneState.localVx / DRONE.MAX_SPEED,  // Right/left speed
+      droneState.localVy / DRONE.MAX_SPEED,  // Up/down speed
+      droneState.localVz / DRONE.MAX_SPEED,  // Forward/back speed
     ];
     
     // Normalized distance to target
@@ -46,13 +51,13 @@ export class ObservationBuilder {
     // Can see target (binary)
     const canSee = canSeeTarget ? 1.0 : 0.0;
     
-    // Combine all observations
+    // Combine all observations (all in LOCAL coords)
     return [
       ...normalizedLidar,
       ...normalizedVel,
-      targetDir.x,
-      targetDir.y,
-      targetDir.z,
+      targetDir.x,  // Local X: target is right (+) or left (-)
+      targetDir.y,  // Local Y: target is above (+) or below (-)
+      targetDir.z,  // Local Z: target is forward (+) or behind (-)
       normalizedDist,
       canSee,
     ];

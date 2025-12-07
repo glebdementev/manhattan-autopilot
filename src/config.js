@@ -182,6 +182,13 @@ export const RL_CONFIG = {
   ACTION_NOISE: 0.3,            // Noise added to actions during exploration
   
   // ===========================================
+  // HEURISTIC BLENDING (for faster initial learning)
+  // ===========================================
+  INITIAL_HEURISTIC_WEIGHT: 0.7,  // Start with 70% heuristic, 30% NN
+  MIN_HEURISTIC_WEIGHT: 0.1,      // Minimum 10% heuristic for safety
+  HEURISTIC_DECAY: 0.9998,        // Decay per training step
+  
+  // ===========================================
   // TRAINING CONTROL
   // ===========================================
   TRAIN_INTERVAL: 10,           // Train every N steps
