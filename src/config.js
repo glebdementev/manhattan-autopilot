@@ -118,7 +118,7 @@ export const RL_CONFIG = {
   // ===========================================
   // NEURAL NETWORK
   // ===========================================
-  HIDDEN_UNITS: [64, 32],   // Network for 24-dim observation
+  HIDDEN_UNITS: [64, 32],   // Network for 25-dim observation
   
   // ===========================================
   // TRAINING HYPERPARAMETERS

@@ -4,12 +4,13 @@
  * Action space: Velocity setpoints [-1, 1] → [-MAX_SPEED, MAX_SPEED]
  * The drone's internal PD controller handles inertia compensation.
  * 
- * Observation space (12 values):
+ * Observation space (25 values):
  * - [0-2] Target direction (normalized)
  * - [3-5] Current velocity (normalized)
- * - [6-9] 4 closest obstacle distances
- * - [10] Nadir distance
- * - [11] Zenith distance
+ * - [6-21] 16 lidar ray distances
+ * - [22] Nadir distance
+ * - [23] Zenith distance
+ * - [24] Target distance
  */
 
 import { LIDAR } from '../config.js';

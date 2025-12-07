@@ -1,20 +1,21 @@
 /**
- * Observation Builder - uses 16-ray forward cone lidar
+ * Observation Builder - uses 16-ray forward cone lidar + nadir + zenith
  * 
- * Observation (24 values):
+ * Observation (25 values):
  * - [0-2] Target direction (X, Y, Z) - normalized unit vector
  * - [3-5] Current velocity (vx, vy, vz) - normalized to [-1, 1]
  * - [6-21] 16 lidar ray distances (normalized 0-1)
  * - [22] Nadir (ground) distance (normalized)
- * - [23] Target distance (normalized)
+ * - [23] Zenith (ceiling) distance (normalized)
+ * - [24] Target distance (normalized)
  */
 
 import { DRONE, LIDAR, RL_CONFIG } from '../../config.js';
 
 export class ObservationBuilder {
   constructor() {
-    // 3 (target dir) + 3 (velocity) + 16 (lidar) + 1 (nadir) + 1 (target dist) = 24
-    this.observationSize = 24;
+    // 3 (target dir) + 3 (velocity) + 16 (lidar) + 1 (nadir) + 1 (zenith) + 1 (target dist) = 25
+    this.observationSize = 25;
   }
   
   /**
@@ -43,8 +44,11 @@ export class ObservationBuilder {
     const lidarDists = lidar.getNormalizedDistances();
     const rayDists = Array.from(lidarDists.slice(0, LIDAR.NUM_RAYS));
     
-    // Nadir distance
+    // Nadir distance (ground)
     const nadir = lidar.getNadirDistance() / LIDAR.MAX_RANGE;
+    
+    // Zenith distance (ceiling/canopy)
+    const zenith = lidar.getZenithDistance() / LIDAR.MAX_RANGE;
     
     // Target distance (normalized)
     const targetDist = Math.min(dist / RL_CONFIG.MAX_TARGET_DISTANCE, 1);
@@ -52,9 +56,10 @@ export class ObservationBuilder {
     return [
       dirX, dirY, dirZ,           // Target direction [0-2]
       velX, velY, velZ,           // Velocity [3-5]
-      ...rayDists,                // 64 lidar distances [6-69]
-      nadir,                      // Ground distance [70]
-      targetDist,                 // Target distance [71]
+      ...rayDists,                // 16 lidar distances [6-21]
+      nadir,                      // Ground distance [22]
+      zenith,                     // Ceiling distance [23]
+      targetDist,                 // Target distance [24]
     ];
   }
   
@@ -81,8 +86,9 @@ export class ObservationBuilder {
     return [
       dirX, dirY, dirZ,
       0, 0, 0,           // Zero velocity
-      ...rayDists,       // 64 rays at max range
-      1,                 // Safe ground distance
+      ...rayDists,       // 16 rays at max range
+      1,                 // Safe ground distance (nadir)
+      1,                 // Safe ceiling distance (zenith)
       targetDist,        // Target distance
     ];
   }

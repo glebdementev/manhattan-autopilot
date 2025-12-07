@@ -1,9 +1,13 @@
 /**
- * LiDAR sensor - 16 horizontal rays + nadir
+ * LiDAR sensor - 16 horizontal rays + nadir + zenith
  * Uses Three.js Raycaster with BVH acceleration
  */
 import * as THREE from 'three';
-import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
+import { 
+  computeBoundsTree, 
+  disposeBoundsTree, 
+  acceleratedRaycast,
+} from 'three-mesh-bvh';
 import { LIDAR } from '../config.js';
 
 // Install BVH acceleration on Three.js prototypes
@@ -18,7 +22,7 @@ export class Lidar {
     // Three.js raycaster - optimized settings
     this.raycaster = new THREE.Raycaster();
     this.raycaster.far = LIDAR.MAX_RANGE;
-    this.raycaster.firstHitOnly = true; // Stop after first hit (huge perf gain)
+    this.raycaster.firstHitOnly = true;
     
     // Targets to raycast against
     this.targets = [];
@@ -26,7 +30,8 @@ export class Lidar {
     // Ray configuration
     this.numRays = LIDAR.NUM_RAYS;
     this.nadirIndex = this.numRays;
-    this.totalRays = this.numRays + 1;
+    this.zenithIndex = this.numRays + 1;
+    this.totalRays = this.numRays + 2;
     
     // Pre-calculate local ray directions
     this.localDirections = this.generateRays();
@@ -35,7 +40,7 @@ export class Lidar {
     this._origin = new THREE.Vector3();
     this._direction = new THREE.Vector3();
     
-    // Reusable intersects array (avoid GC)
+    // Reusable intersects array
     this._intersects = [];
     
     // Store distances
@@ -63,8 +68,11 @@ export class Lidar {
       directions.push(new THREE.Vector3(Math.sin(angle), 0, -Math.cos(angle)));
     }
     
-    // Nadir ray
+    // Nadir ray (downward)
     directions.push(new THREE.Vector3(0, -1, 0));
+    
+    // Zenith ray (upward)
+    directions.push(new THREE.Vector3(0, 1, 0));
     
     return directions;
   }
@@ -96,7 +104,7 @@ export class Lidar {
   
   /**
    * Perform LiDAR scan using Three.js Raycaster
-   * OPTIMIZED: reuses intersects array, uses firstHitOnly
+   * OPTIMIZED: reuses intersects array, uses firstHitOnly + BVH
    */
   scan() {
     const { x, y, z, yaw } = this.drone;
@@ -108,8 +116,8 @@ export class Lidar {
     for (let i = 0; i < this.totalRays; i++) {
       const local = this.localDirections[i];
       
-      // Transform to world space
-      if (i === this.nadirIndex) {
+      // Transform to world space (nadir/zenith don't need yaw rotation)
+      if (i === this.nadirIndex || i === this.zenithIndex) {
         this._direction.copy(local);
       } else {
         this._direction.set(
@@ -122,7 +130,7 @@ export class Lidar {
       // Clear and reuse intersects array
       this._intersects.length = 0;
       this.raycaster.set(this._origin, this._direction);
-      this.raycaster.intersectObjects(this.targets, true, this._intersects);
+      this.raycaster.intersectObjects(this.targets, false, this._intersects);
       
       this.distances[i] = this._intersects.length > 0 
         ? this._intersects[0].distance 
@@ -144,10 +152,13 @@ export class Lidar {
     const colors = new Float32Array(this.totalRays * 6);
     
     const rayColor = new THREE.Color(LIDAR.RAY_COLOR);
-    const nadirColor = new THREE.Color(0x00ffff);
+    const nadirColor = new THREE.Color(0x00ffff);  // Cyan for nadir
+    const zenithColor = new THREE.Color(0xff00ff); // Magenta for zenith
     
     for (let i = 0; i < this.totalRays; i++) {
-      const color = i === this.nadirIndex ? nadirColor : rayColor;
+      let color = rayColor;
+      if (i === this.nadirIndex) color = nadirColor;
+      else if (i === this.zenithIndex) color = zenithColor;
       const idx = i * 6;
       colors[idx] = colors[idx + 3] = color.r;
       colors[idx + 1] = colors[idx + 4] = color.g;
@@ -191,9 +202,9 @@ export class Lidar {
       positions[idx + 1] = y;
       positions[idx + 2] = z;
       
-      // Direction
+      // Direction (nadir/zenith don't need yaw rotation)
       let wx, wy, wz;
-      if (i === this.nadirIndex) {
+      if (i === this.nadirIndex || i === this.zenithIndex) {
         wx = local.x; wy = local.y; wz = local.z;
       } else {
         wx = local.x * cosYaw - local.z * sinYaw;
@@ -263,7 +274,7 @@ export class Lidar {
   getNumClosestObstacles() { return this.numRays; }
   getClosestObstaclesFlat() { return this.getNormalizedDistances(); }
   getClosestObstacles() { return []; }
-  getZenithDistance() { return LIDAR.MAX_RANGE; }
+  getZenithDistance() { return this.distances[this.zenithIndex]; }
   getHitPoints() { return []; }
   setTargetPosition() {}
   setTargetVisible() {}

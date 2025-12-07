@@ -1,37 +1,32 @@
 /**
- * Bush mesh using InstancedMesh
+ * Bush mesh using merged geometry
+ * OPTIMIZED: Single mesh with BVH for fast raycasting
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { COLORS } from '../config.js';
 
 export class BushMesh {
   constructor() {
-    this.bushInstances = null;
+    this.bushMesh = null;
     this.obstacles = [];
   }
 
   /**
-   * Create bushes from bush data
+   * Create bushes from bush data using merged geometry
    * @param {Array} bushes - Array of {x, y, z, size}
    */
   create(bushes) {
     if (bushes.length === 0) return { meshes: [], obstacles: [] };
 
-    // Single sphere geometry for all bushes
-    const bushGeom = new THREE.SphereGeometry(1, 6, 6);
-    const bushMat = new THREE.MeshLambertMaterial({ color: COLORS.BUSH });
+    const baseBush = new THREE.SphereGeometry(1, 6, 6);
+    const bushGeometries = [];
     
-    this.bushInstances = new THREE.InstancedMesh(bushGeom, bushMat, bushes.length);
-    this.bushInstances.castShadow = true;
-    
-    const matrix = new THREE.Matrix4();
-    
-    bushes.forEach((bush, i) => {
-      matrix.identity();
-      matrix.makeTranslation(bush.x, bush.y + bush.size * 0.5, bush.z);
-      const scale = new THREE.Matrix4().makeScale(bush.size, bush.size * 0.7, bush.size);
-      matrix.multiply(scale);
-      this.bushInstances.setMatrixAt(i, matrix);
+    bushes.forEach((bush) => {
+      const bushGeom = baseBush.clone();
+      bushGeom.scale(bush.size, bush.size * 0.7, bush.size);
+      bushGeom.translate(bush.x, bush.y + bush.size * 0.5, bush.z);
+      bushGeometries.push(bushGeom);
       
       this.obstacles.push({
         type: 'bush',
@@ -43,20 +38,29 @@ export class BushMesh {
       });
     });
     
-    this.bushInstances.instanceMatrix.needsUpdate = true;
+    // Merge all geometries
+    const mergedGeom = mergeGeometries(bushGeometries, false);
+    
+    // Dispose individual geometries
+    bushGeometries.forEach(g => g.dispose());
+    baseBush.dispose();
+    
+    // Create mesh
+    const bushMat = new THREE.MeshLambertMaterial({ color: COLORS.BUSH });
+    this.bushMesh = new THREE.Mesh(mergedGeom, bushMat);
+    this.bushMesh.castShadow = true;
     
     return {
-      meshes: [this.bushInstances],
+      meshes: [this.bushMesh],
       obstacles: this.obstacles
     };
   }
 
   getMesh() {
-    return this.bushInstances;
+    return this.bushMesh;
   }
 
   getObstacles() {
     return this.obstacles;
   }
 }
-

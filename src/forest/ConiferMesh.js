@@ -1,63 +1,50 @@
 /**
- * Conifer (pine/spruce) tree mesh using InstancedMesh
+ * Conifer (pine/spruce) tree mesh using merged geometry
+ * OPTIMIZED: Single mesh with BVH for fast raycasting
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { FOREST, COLORS } from '../config.js';
 
 export class ConiferMesh {
   constructor() {
-    this.coneInstances = null;
-    this.trunkInstances = null;
+    this.foliageMesh = null;
+    this.trunkMesh = null;
     this.obstacles = [];
   }
 
   /**
-   * Create conifer trees from tree data
+   * Create conifer trees from tree data using merged geometry
    * @param {Array} trees - Array of {x, y, z, height, radius, rotation}
    */
   create(trees) {
     if (trees.length === 0) return { meshes: [], obstacles: [] };
 
-    // Cone for foliage - taller and more prominent
-    const coneGeom = new THREE.ConeGeometry(1, 2.5, 8);
-    const coneMat = new THREE.MeshLambertMaterial({ color: COLORS.CONIFER_FOLIAGE });
+    // Base geometries (will be cloned and transformed)
+    const baseCone = new THREE.ConeGeometry(1, 2.5, 8);
+    const baseTrunk = new THREE.CylinderGeometry(0.25, 0.35, 1, 8);
     
-    // Trunk cylinder - unit size, will be scaled per instance (50% narrower)
-    const trunkGeom = new THREE.CylinderGeometry(0.25, 0.35, 1, 8);
-    const trunkMat = new THREE.MeshLambertMaterial({ color: COLORS.CONIFER_TRUNK });
+    const coneGeometries = [];
+    const trunkGeometries = [];
     
-    this.coneInstances = new THREE.InstancedMesh(coneGeom, coneMat, trees.length);
-    this.trunkInstances = new THREE.InstancedMesh(trunkGeom, trunkMat, trees.length);
-    
-    this.coneInstances.castShadow = true;
-    this.trunkInstances.castShadow = true;
-    
-    const coneMatrix = new THREE.Matrix4();
-    const trunkMatrix = new THREE.Matrix4();
-    
-    trees.forEach((tree, i) => {
-      // Trunk takes 30% of height, foliage takes 70%
+    trees.forEach((tree) => {
       const trunkHeight = tree.height * 0.3;
       const coneHeight = tree.height * 0.7;
+      const trunkWidthScale = 0.8 + (tree.height / 24) * 0.6;
       
-      // Trunk width depends on tree height (taller = wider trunk)
-      const trunkWidthScale = 0.8 + (tree.height / 24) * 0.6; // 0.8 to 1.4 based on height
+      // Clone and transform trunk geometry
+      const trunkGeom = baseTrunk.clone();
+      trunkGeom.scale(trunkWidthScale, trunkHeight, trunkWidthScale);
+      trunkGeom.translate(tree.x, tree.y + trunkHeight / 2, tree.z);
+      trunkGeometries.push(trunkGeom);
       
-      // Trunk - positioned at base
-      trunkMatrix.identity();
-      trunkMatrix.makeTranslation(tree.x, tree.y + trunkHeight / 2, tree.z);
-      const trunkScale = new THREE.Matrix4().makeScale(trunkWidthScale, trunkHeight, trunkWidthScale);
-      trunkMatrix.multiply(trunkScale);
-      this.trunkInstances.setMatrixAt(i, trunkMatrix);
+      // Clone and transform cone geometry
+      const coneGeom = baseCone.clone();
+      coneGeom.scale(tree.radius, coneHeight / 2.5, tree.radius);
+      coneGeom.translate(tree.x, tree.y + trunkHeight + coneHeight / 2, tree.z);
+      coneGeometries.push(coneGeom);
       
-      // Cone (foliage) - positioned above trunk
-      coneMatrix.identity();
-      coneMatrix.makeTranslation(tree.x, tree.y + trunkHeight + coneHeight / 2, tree.z);
-      const coneScale = new THREE.Matrix4().makeScale(tree.radius, coneHeight / 2.5, tree.radius);
-      coneMatrix.multiply(coneScale);
-      this.coneInstances.setMatrixAt(i, coneMatrix);
-      
-      // Store trunk obstacle (narrower, for target placement)
+      // Store obstacles
       this.obstacles.push({
         type: 'trunk',
         x: tree.x, 
@@ -67,7 +54,6 @@ export class ConiferMesh {
         maxY: tree.y + trunkHeight,
       });
       
-      // Store canopy obstacle (wider, for drone collision)
       this.obstacles.push({
         type: 'canopy',
         x: tree.x, 
@@ -78,21 +64,38 @@ export class ConiferMesh {
       });
     });
     
-    this.coneInstances.instanceMatrix.needsUpdate = true;
-    this.trunkInstances.instanceMatrix.needsUpdate = true;
+    // Merge all geometries into single meshes
+    const mergedTrunkGeom = mergeGeometries(trunkGeometries, false);
+    const mergedConeGeom = mergeGeometries(coneGeometries, false);
+    
+    // Dispose individual geometries
+    trunkGeometries.forEach(g => g.dispose());
+    coneGeometries.forEach(g => g.dispose());
+    baseCone.dispose();
+    baseTrunk.dispose();
+    
+    // Create materials
+    const coneMat = new THREE.MeshLambertMaterial({ color: COLORS.CONIFER_FOLIAGE });
+    const trunkMat = new THREE.MeshLambertMaterial({ color: COLORS.CONIFER_TRUNK });
+    
+    // Create meshes
+    this.foliageMesh = new THREE.Mesh(mergedConeGeom, coneMat);
+    this.trunkMesh = new THREE.Mesh(mergedTrunkGeom, trunkMat);
+    
+    this.foliageMesh.castShadow = true;
+    this.trunkMesh.castShadow = true;
     
     return {
-      meshes: [this.trunkInstances, this.coneInstances],
+      meshes: [this.trunkMesh, this.foliageMesh],
       obstacles: this.obstacles
     };
   }
 
   getMeshes() {
-    return [this.trunkInstances, this.coneInstances].filter(m => m !== null);
+    return [this.trunkMesh, this.foliageMesh].filter(m => m !== null);
   }
 
   getObstacles() {
     return this.obstacles;
   }
 }
-
