@@ -80,6 +80,7 @@ class Simulation {
     console.log('Creating drone...');
     this.drone = new Drone();
     this.drone.setCollisionChecker(this.forestGenerator);
+    this.drone.setScene(this.sceneManager.getScene());
     this.sceneManager.add(this.drone.getMesh());
     
     // Create LiDAR
@@ -367,10 +368,10 @@ class Simulation {
       case 'd': case 'arrowright':
         this.manualInput.right = true;
         break;
-      case 'shift':
+      case 'q':
         this.manualInput.up = true;
         break;
-      case 'control':
+      case 'z':
         this.manualInput.down = true;
         break;
       case 'r':
@@ -396,10 +397,10 @@ class Simulation {
       case 'd': case 'arrowright':
         this.manualInput.right = false;
         break;
-      case 'shift':
+      case 'q':
         this.manualInput.up = false;
         break;
-      case 'control':
+      case 'z':
         this.manualInput.down = false;
         break;
     }

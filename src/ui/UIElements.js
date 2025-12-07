@@ -147,7 +147,7 @@ export function createInfoPanelHTML() {
       <p><strong>Manual Controls:</strong></p>
       <p><strong>W/S</strong> - Forward/Back</p>
       <p><strong>A/D</strong> - Left/Right</p>
-      <p><strong>Shift/Ctrl</strong> - Up/Down</p>
+      <p><strong>Q/Z</strong> - Up/Down</p>
       <p><strong>R</strong> - New target</p>
     </div>
     
