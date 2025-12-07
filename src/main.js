@@ -1,20 +1,16 @@
 /**
- * Main entry point - orchestrates all simulation components
+ * Main entry point - Forest Drone Navigation Simulation
+ * A drone navigates through a procedurally generated forest
  */
-import { SIMULATION, CITY } from './config.js';
+import { SIMULATION, FOREST } from './config.js';
 
-// City
-import { CityGenerator } from './city/CityGenerator.js';
-import { RoadNetwork } from './city/RoadNetwork.js';
-
-// Routing
-import { PathFinder } from './routing/PathFinder.js';
-import { RouteManager } from './routing/RouteManager.js';
+// Forest
+import { ForestGenerator } from './forest/ForestGenerator.js';
 
 // Vehicle
-import { Car } from './vehicle/Car.js';
+import { Drone } from './vehicle/Drone.js';
 import { Lidar } from './vehicle/Lidar.js';
-import { CarController } from './vehicle/CarController.js';
+import { DroneController } from './vehicle/DroneController.js';
 
 // Autopilot
 import { AutopilotModel } from './autopilot/AutopilotModel.js';
@@ -29,11 +25,8 @@ class Simulation {
   constructor() {
     // Components
     this.sceneManager = null;
-    this.cityGenerator = null;
-    this.roadNetwork = null;
-    this.pathFinder = null;
-    this.routeManager = null;
-    this.car = null;
+    this.forestGenerator = null;
+    this.drone = null;
     this.lidar = null;
     this.controller = null;
     this.autopilot = null;
@@ -50,57 +43,50 @@ class Simulation {
     // Manual control
     this.manualInput = {
       forward: false,
+      backward: false,
       left: false,
       right: false,
-      brake: false,
+      up: false,
+      down: false,
     };
     
     // Raycast targets for LiDAR
     this.raycastTargets = [];
     
-    // Route completion flag to prevent multiple auto-regenerations
-    this.isRegeneratingRoute = false;
+    // Target reached flag
+    this.isRegeneratingTarget = false;
   }
 
   /**
    * Initialize the simulation
    */
   async init() {
-    console.log('Initializing Manhattan Autopilot Simulation...');
+    console.log('Initializing Forest Drone Navigation...');
     
     // Create scene
     const container = document.getElementById('canvas-container');
     this.sceneManager = new SceneManager(container);
     
-    // Generate city
-    console.log('Generating city...');
-    this.cityGenerator = new CityGenerator();
-    const city = this.cityGenerator.generate();
-    this.sceneManager.add(city);
+    // Generate forest
+    console.log('Generating forest...');
+    this.forestGenerator = new ForestGenerator(42);
+    const forest = this.forestGenerator.generate();
+    this.sceneManager.add(forest);
     
-    // Build road network
-    console.log('Building road network...');
-    this.roadNetwork = new RoadNetwork();
-    this.roadNetwork.buildFromIntersections(this.cityGenerator.getIntersections());
-    
-    // Create pathfinder and route manager
-    this.pathFinder = new PathFinder(this.roadNetwork);
-    this.routeManager = new RouteManager(this.roadNetwork, this.pathFinder);
-    
-    // Create car
-    console.log('Creating vehicle...');
-    this.car = new Car();
-    this.sceneManager.add(this.car.getMesh());
+    // Create drone
+    console.log('Creating drone...');
+    this.drone = new Drone();
+    this.sceneManager.add(this.drone.getMesh());
     
     // Create LiDAR
-    this.lidar = new Lidar(this.car);
+    this.lidar = new Lidar(this.drone);
     this.sceneManager.add(this.lidar.getVisualGroup());
     
-    // Get raycast targets (buildings and sidewalks)
-    this.raycastTargets = this.cityGenerator.getRaycastTargets();
+    // Get raycast targets
+    this.raycastTargets = this.forestGenerator.getRaycastTargets();
     
-    // Create classical controller
-    this.controller = new CarController(this.car, this.routeManager);
+    // Create controller
+    this.controller = new DroneController(this.drone, this.forestGenerator);
     
     // Create autopilot components
     console.log('Initializing autopilot...');
@@ -134,8 +120,9 @@ class Simulation {
     this.ui = new UIManager();
     this.setupUICallbacks();
     
-    // Generate initial route
-    this.generateNewRoute();
+    // Set initial position and target
+    this.resetDrone();
+    this.generateNewTarget();
     
     // Start simulation
     this.isRunning = true;
@@ -149,7 +136,7 @@ class Simulation {
    * Setup UI event callbacks
    */
   setupUICallbacks() {
-    this.ui.on('newRoute', () => this.generateNewRoute());
+    this.ui.on('newTarget', () => this.generateNewTarget());
     this.ui.on('reset', () => this.resetSimulation());
     
     this.ui.on('driverModeChange', (mode) => {
@@ -162,8 +149,8 @@ class Simulation {
       }
       
       this.driverMode = mode;
-      this.car.setMode(mode);
-      console.log(`Driver mode: ${mode}`);
+      this.drone.setMode(mode);
+      console.log(`Pilot mode: ${mode}`);
     });
     
     this.ui.on('cameraModeChange', (mode) => {
@@ -183,45 +170,34 @@ class Simulation {
     this.ui.on('keydown', (key) => this.handleKeyDown(key));
     this.ui.on('keyup', (key) => this.handleKeyUp(key));
     
-    // Set initial car color
-    this.car.setMode('classic');
+    // Set initial drone color
+    this.drone.setMode('classic');
   }
 
   /**
-   * Generate a new route
+   * Reset drone to spawn position
    */
-  generateNewRoute() {
-    // Generate route
-    const result = this.routeManager.generateRandomRoute(6);
+  resetDrone() {
+    const spawnPos = this.forestGenerator.findSpawnPosition();
+    this.drone.reset();
+    this.drone.setPosition(spawnPos.x, spawnPos.y, spawnPos.z);
+  }
+
+  /**
+   * Generate a new target
+   */
+  generateNewTarget() {
+    const state = this.drone.getState();
+    const target = this.forestGenerator.generateTargetPosition(state.x, state.z);
     
-    if (result.path.length > 0) {
-      // Get waypoints
-      const waypoints = this.routeManager.getAllWaypoints();
-      
-      if (waypoints.length >= 2) {
-        // Position car at the first waypoint (on the road)
-        const startWp = waypoints[0];
-        
-        // Calculate initial heading based on first two waypoints
-        const dx = waypoints[1].x - waypoints[0].x;
-        const dz = waypoints[1].z - waypoints[0].z;
-        const heading = Math.atan2(dz, dx);
-        
-        // Reset car stats first, THEN set position (reset() resets position to 0,0)
-        this.car.reset();
-        this.car.setPosition(startWp.x, startWp.z, heading);
-        this.routeManager.reset();
-        
-        // Visualize route
-        this.sceneManager.visualizeRoute(waypoints);
-        
-        console.log(`New route: ${result.path.length} nodes, ${waypoints.length} waypoints`);
-        
-        // If collecting data, start new episode
-        if (this.trainer.isCollecting()) {
-          this.trainer.onEpisodeStart();
-        }
-      }
+    this.controller.setTarget(target.x, target.y, target.z);
+    this.sceneManager.setTargetPosition(target.x, target.y, target.z);
+    
+    console.log(`New target: (${target.x.toFixed(1)}, ${target.y.toFixed(1)}, ${target.z.toFixed(1)})`);
+    
+    // If collecting data, start new episode
+    if (this.trainer.isCollecting()) {
+      this.trainer.onEpisodeStart();
     }
   }
 
@@ -229,29 +205,8 @@ class Simulation {
    * Reset simulation
    */
   resetSimulation() {
-    this.car.reset();
-    this.routeManager.reset();
-    
-    const waypoints = this.routeManager.getAllWaypoints();
-    if (waypoints.length > 0) {
-      const startWp = waypoints[0];
-      let heading = 0;
-      
-      if (waypoints.length >= 2) {
-        const dx = waypoints[1].x - waypoints[0].x;
-        const dz = waypoints[1].z - waypoints[0].z;
-        heading = Math.atan2(dz, dx);
-      }
-      
-      this.car.setPosition(startWp.x, startWp.z, heading);
-    }
-  }
-
-  /**
-   * Train the autopilot model
-   */
-  async trainModel() {
-    await this.trainer.train(20);
+    this.resetDrone();
+    this.generateNewTarget();
   }
 
   /**
@@ -261,7 +216,6 @@ class Simulation {
     this.ui.setInstantTrainEnabled(false);
     this.ui.setTrainingStatus('Generating data & training...');
     
-    // Generate data first
     setTimeout(async () => {
       this.trainer.generateSyntheticData(10000);
       await this.trainer.train(20);
@@ -316,7 +270,7 @@ class Simulation {
     
     const link = document.createElement('a');
     link.href = url;
-    link.download = `training-data-${dataSize}-samples.json`;
+    link.download = `drone-training-data-${dataSize}-samples.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -347,7 +301,7 @@ class Simulation {
         this.manualInput.forward = true;
         break;
       case 's': case 'arrowdown':
-        this.manualInput.brake = true;
+        this.manualInput.backward = true;
         break;
       case 'a': case 'arrowleft':
         this.manualInput.left = true;
@@ -355,8 +309,14 @@ class Simulation {
       case 'd': case 'arrowright':
         this.manualInput.right = true;
         break;
+      case 'q':
+        this.manualInput.up = true;
+        break;
+      case 'e':
+        this.manualInput.down = true;
+        break;
       case 'r':
-        this.generateNewRoute();
+        this.generateNewTarget();
         break;
       case 'c':
         this.cameraMode = this.cameraMode === 'chase' ? 'bird' : 'chase';
@@ -373,7 +333,7 @@ class Simulation {
         this.manualInput.forward = false;
         break;
       case 's': case 'arrowdown':
-        this.manualInput.brake = false;
+        this.manualInput.backward = false;
         break;
       case 'a': case 'arrowleft':
         this.manualInput.left = false;
@@ -381,46 +341,50 @@ class Simulation {
       case 'd': case 'arrowright':
         this.manualInput.right = false;
         break;
+      case 'q':
+        this.manualInput.up = false;
+        break;
+      case 'e':
+        this.manualInput.down = false;
+        break;
     }
   }
 
   /**
    * Get control commands based on current driver mode
-   * Returns { steering, throttle, actualMode }
    */
   getControlCommands() {
     if (this.driverMode === 'manual') {
-      // Manual control: W = forward, S = brake, A/D = steering
-      let steering = 0;
-      let throttle = 0;
+      // Manual control: WASD for horizontal, QE for vertical
+      let thrustX = 0;
+      let thrustY = 0;
+      let thrustZ = 0;
       
-      if (this.manualInput.left) steering = -0.5;
-      if (this.manualInput.right) steering = 0.5;
-      if (this.manualInput.forward) throttle = 0.8;
-      if (this.manualInput.brake) throttle = -1;
+      if (this.manualInput.left) thrustX = -0.8;
+      if (this.manualInput.right) thrustX = 0.8;
+      if (this.manualInput.forward) thrustZ = 0.8;
+      if (this.manualInput.backward) thrustZ = -0.8;
+      if (this.manualInput.up) thrustY = 0.8;
+      if (this.manualInput.down) thrustY = -0.5;
       
-      return { steering, throttle, actualMode: 'manual' };
+      return { thrustX, thrustY, thrustZ, actualMode: 'manual' };
     } else if (this.driverMode === 'autopilot') {
-      // Neural network autopilot - MUST have a ready model
+      // Neural network autopilot
       if (!this.autopilot.isReady()) {
-        // This shouldn't happen if UI is working correctly
         console.error('Autopilot selected but model not ready!');
-        return { steering: 0, throttle: 0, actualMode: 'stopped' };
+        return { thrustX: 0, thrustY: 0, thrustZ: 0, actualMode: 'stopped' };
       }
       
       const lidarDistances = this.lidar.getDistances();
-      const vehicleState = this.car.getState();
-      const routeState = {
-        headingError: this.controller.getHeadingError(),
-        lateralOffset: this.controller.getLateralOffset(),
-        targetDirection: this.controller.getTargetDirection(),
-      };
+      const droneState = this.drone.getState();
+      const targetDirection = this.controller.getTargetDirection();
       
-      const prediction = this.autopilot.predict(lidarDistances, vehicleState, routeState);
+      const prediction = this.autopilot.predict(lidarDistances, droneState, targetDirection);
       return { ...prediction, actualMode: 'autopilot' };
     } else {
       // Classical controller
-      const control = this.controller.computeControl();
+      const lidarDistances = this.lidar.getDistances();
+      const control = this.controller.computeControl(lidarDistances);
       return { ...control, actualMode: 'classic' };
     }
   }
@@ -449,18 +413,19 @@ class Simulation {
    * Update simulation state
    */
   update(dt) {
-    // Handle route completion - auto-generate new route
-    if (this.routeManager.isComplete()) {
+    // Check if target reached
+    if (this.controller.isTargetReached()) {
       if (this.trainer.isCollecting()) {
         this.trainer.onEpisodeEnd(true);
       }
-      this.ui.updateRouteProgress(1, 'Complete!');
-      // Auto-generate a new route after a short delay (prevent multiple triggers)
-      if (!this.isRegeneratingRoute) {
-        this.isRegeneratingRoute = true;
+      this.ui.updateNavigation(0, '🎯 Target Reached!');
+      
+      // Auto-generate new target
+      if (!this.isRegeneratingTarget) {
+        this.isRegeneratingTarget = true;
         setTimeout(() => {
-          this.generateNewRoute();
-          this.isRegeneratingRoute = false;
+          this.generateNewTarget();
+          this.isRegeneratingTarget = false;
         }, 500);
       }
       return;
@@ -471,52 +436,84 @@ class Simulation {
     
     // Get control commands
     const control = this.getControlCommands();
-    this.car.setControls(control.steering, control.throttle);
+    this.drone.setControls(control.thrustX, control.thrustY, control.thrustZ);
     
-    // Record data if collecting
+    // Record data if collecting and using classic controller
     if (this.trainer.isCollecting() && this.driverMode === 'classic') {
       const lidarDistances = this.lidar.getDistances();
-      const vehicleState = this.car.getState();
-      const routeState = {
-        headingError: this.controller.getHeadingError(),
-        lateralOffset: this.controller.getLateralOffset(),
-        targetDirection: this.controller.getTargetDirection(),
-      };
+      const droneState = this.drone.getState();
+      const targetDirection = this.controller.getTargetDirection();
       
-      this.dataRecorder.record(lidarDistances, vehicleState, routeState, control);
+      this.dataRecorder.record(lidarDistances, droneState, targetDirection, control);
     }
     
-    // Update car physics
-    this.car.update(dt);
+    // Update drone physics
+    this.drone.update(dt);
+    
+    // Keep drone in bounds
+    this.enforceBounds();
     
     // Update camera
+    const state = this.drone.getState();
     this.sceneManager.followTarget(
-      this.car.x,
-      this.car.z,
-      this.car.heading,
+      state.x,
+      state.y,
+      state.z,
+      state.yaw,
       this.cameraMode
     );
     
     // Update UI
-    const carState = this.car.getState();
-    this.ui.updateVehicleStats(
-      carState.speed,
-      carState.steering,
-      this.car.distanceTraveled
+    this.ui.updateDroneStats(
+      state.speed,
+      state.y,
+      this.drone.distanceTraveled
     );
     
     // Show actual mode being used
     const modeLabels = {
       'autopilot': '🤖 Autopilot',
       'manual': '🎮 Manual',
-      'classic': '🚗 Classic',
+      'classic': '🚁 Classic',
       'stopped': '⚠️ Stopped',
     };
     
-    this.ui.updateRouteProgress(
-      this.routeManager.getProgress(),
+    this.ui.updateNavigation(
+      this.controller.getDistanceToTarget(),
       modeLabels[control.actualMode] || control.actualMode
     );
+  }
+
+  /**
+   * Keep drone within forest bounds
+   */
+  enforceBounds() {
+    const state = this.drone.getState();
+    const margin = 5;
+    const halfSize = FOREST.SIZE / 2 - margin;
+    
+    let x = state.x;
+    let y = state.y;
+    let z = state.z;
+    let changed = false;
+    
+    // Horizontal bounds
+    if (x < -halfSize) { x = -halfSize; changed = true; }
+    if (x > halfSize) { x = halfSize; changed = true; }
+    if (z < -halfSize) { z = -halfSize; changed = true; }
+    if (z > halfSize) { z = halfSize; changed = true; }
+    
+    // Vertical bounds
+    const groundY = this.forestGenerator.getTerrainHeight(x, z);
+    const minY = groundY + FOREST.FLYING_HEIGHT_MIN;
+    const maxY = groundY + FOREST.FLYING_HEIGHT_MAX + 5;
+    
+    if (y < minY) { y = minY; changed = true; }
+    if (y > maxY) { y = maxY; changed = true; }
+    
+    if (changed) {
+      this.drone.setPosition(x, y, z);
+    }
   }
 }
 
@@ -528,4 +525,3 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Expose for debugging
   window.sim = sim;
 });
-

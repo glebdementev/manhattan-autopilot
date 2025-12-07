@@ -2,132 +2,298 @@
  * Synthetic data generator for instant training data creation
  * Generates training examples by sampling positions geometrically
  * and computing LiDAR + controller outputs mathematically
+ * Updated for drone navigation in forest environment
  */
-import { CITY, LIDAR, VEHICLE, CONTROLLER, AUTOPILOT } from '../config.js';
+import { FOREST, LIDAR, DRONE, CONTROLLER, AUTOPILOT } from '../config.js';
 
-// Lane offset from road center (drive on the right side)
-const LANE_OFFSET = CITY.ROAD_WIDTH / 4;
+// Simple Perlin noise (same as ForestGenerator)
+class PerlinNoise {
+  constructor(seed = 12345) {
+    this.permutation = this.generatePermutation(seed);
+  }
 
-export class SyntheticDataGenerator {
-  constructor() {
-    // Precompute city geometry (rectangular blocks)
-    this.citySizeX = CITY.GRID_SIZE * (CITY.BLOCK_SIZE_X + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH;
-    this.citySizeZ = CITY.GRID_SIZE * (CITY.BLOCK_SIZE_Z + CITY.ROAD_WIDTH) + CITY.ROAD_WIDTH;
-    this.cityOffsetX = -this.citySizeX / 2;
-    this.cityOffsetZ = -this.citySizeZ / 2;
-    this.blockUnitX = CITY.BLOCK_SIZE_X + CITY.ROAD_WIDTH;
-    this.blockUnitZ = CITY.BLOCK_SIZE_Z + CITY.ROAD_WIDTH;
+  generatePermutation(seed) {
+    const p = [];
+    for (let i = 0; i < 256; i++) p[i] = i;
     
-    // Precompute ray angles for LiDAR simulation
-    this.rayAngles = [];
-    const startAngle = -LIDAR.FOV / 2;
-    const angleStep = LIDAR.FOV / (LIDAR.NUM_RAYS - 1);
-    for (let i = 0; i < LIDAR.NUM_RAYS; i++) {
-      this.rayAngles.push(startAngle + i * angleStep);
+    let s = seed;
+    for (let i = 255; i > 0; i--) {
+      s = (s * 16807) % 2147483647;
+      const j = s % (i + 1);
+      [p[i], p[j]] = [p[j], p[i]];
     }
     
-    // Build obstacle geometry (buildings and sidewalks as AABBs)
+    return [...p, ...p];
+  }
+
+  fade(t) {
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+
+  lerp(a, b, t) {
+    return a + t * (b - a);
+  }
+
+  grad(hash, x, y) {
+    const h = hash & 3;
+    const u = h < 2 ? x : y;
+    const v = h < 2 ? y : x;
+    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+  }
+
+  noise2D(x, y) {
+    const X = Math.floor(x) & 255;
+    const Y = Math.floor(y) & 255;
+    
+    x -= Math.floor(x);
+    y -= Math.floor(y);
+    
+    const u = this.fade(x);
+    const v = this.fade(y);
+    
+    const p = this.permutation;
+    const A = p[X] + Y;
+    const B = p[X + 1] + Y;
+    
+    return this.lerp(
+      this.lerp(this.grad(p[A], x, y), this.grad(p[B], x - 1, y), u),
+      this.lerp(this.grad(p[A + 1], x, y - 1), this.grad(p[B + 1], x - 1, y - 1), u),
+      v
+    );
+  }
+
+  fbm(x, y, octaves = 4, lacunarity = 2, persistence = 0.5) {
+    let value = 0;
+    let amplitude = 1;
+    let frequency = 1;
+    let maxValue = 0;
+    
+    for (let i = 0; i < octaves; i++) {
+      value += amplitude * this.noise2D(x * frequency, y * frequency);
+      maxValue += amplitude;
+      amplitude *= persistence;
+      frequency *= lacunarity;
+    }
+    
+    return value / maxValue;
+  }
+}
+
+export class SyntheticDataGenerator {
+  constructor(seed = 42) {
+    this.seed = seed;
+    this.perlin = new PerlinNoise(seed);
+    
+    // Forest geometry
+    this.forestSize = FOREST.SIZE;
+    this.halfSize = FOREST.SIZE / 2;
+    
+    // Pre-calculate ray directions for LiDAR simulation
+    this.rayDirections = this.calculateRayDirections();
+    
+    // Build obstacle geometry (trees and bushes as cylinders/spheres)
     this.obstacles = this.buildObstacleGeometry();
   }
 
   /**
-   * Build axis-aligned bounding boxes for all obstacles
+   * Calculate ray directions (same as Lidar class)
+   */
+  calculateRayDirections() {
+    const directions = [];
+    
+    const hFov = LIDAR.HORIZONTAL_FOV;
+    const vFov = LIDAR.VERTICAL_FOV;
+    const numH = LIDAR.NUM_HORIZONTAL_RAYS;
+    const numV = LIDAR.NUM_VERTICAL_RAYS;
+    
+    for (let v = 0; v < numV; v++) {
+      const verticalAngle = -vFov / 2 + (v / Math.max(numV - 1, 1)) * vFov;
+      
+      for (let h = 0; h < numH; h++) {
+        const horizontalAngle = -hFov / 2 + (h / Math.max(numH - 1, 1)) * hFov;
+        
+        const cosV = Math.cos(verticalAngle);
+        const sinV = Math.sin(verticalAngle);
+        const cosH = Math.cos(horizontalAngle);
+        const sinH = Math.sin(horizontalAngle);
+        
+        directions.push({
+          x: sinH * cosV,
+          y: sinV,
+          z: cosH * cosV,
+        });
+      }
+    }
+    
+    return directions;
+  }
+
+  /**
+   * Get terrain height at position
+   */
+  getTerrainHeight(x, z) {
+    const scale = FOREST.TERRAIN_SCALE;
+    const height = FOREST.TERRAIN_HEIGHT;
+    return this.perlin.fbm(x * scale, z * scale, 4, 2, 0.5) * height;
+  }
+
+  /**
+   * Build simplified obstacle geometry for ray testing
    */
   buildObstacleGeometry() {
     const obstacles = [];
     
-    // Add sidewalks and buildings for each block
-    for (let i = 0; i < CITY.GRID_SIZE; i++) {
-      for (let j = 0; j < CITY.GRID_SIZE; j++) {
-        const blockX = this.cityOffsetX + CITY.ROAD_WIDTH + i * this.blockUnitX;
-        const blockZ = this.cityOffsetZ + CITY.ROAD_WIDTH + j * this.blockUnitZ;
-        
-        // Sidewalks around block (rectangular)
-        const sw = CITY.SIDEWALK_WIDTH;
-        const bsX = CITY.BLOCK_SIZE_X;
-        const bsZ = CITY.BLOCK_SIZE_Z;
-        
-        // North sidewalk
-        obstacles.push({ minX: blockX, maxX: blockX + bsX, minZ: blockZ, maxZ: blockZ + sw });
-        // South sidewalk
-        obstacles.push({ minX: blockX, maxX: blockX + bsX, minZ: blockZ + bsZ - sw, maxZ: blockZ + bsZ });
-        // West sidewalk
-        obstacles.push({ minX: blockX, maxX: blockX + sw, minZ: blockZ + sw, maxZ: blockZ + bsZ - sw });
-        // East sidewalk
-        obstacles.push({ minX: blockX + bsX - sw, maxX: blockX + bsX, minZ: blockZ + sw, maxZ: blockZ + bsZ - sw });
-        
-        // Building (fills block inside sidewalks)
-        obstacles.push({
-          minX: blockX + sw,
-          maxX: blockX + bsX - sw,
-          minZ: blockZ + sw,
-          maxZ: blockZ + bsZ - sw,
-        });
+    // Use seeded random for reproducibility
+    let seed = this.seed * 7;
+    const random = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    
+    // Generate trees
+    const numTrees = Math.floor(this.forestSize * this.forestSize * FOREST.TREE_DENSITY);
+    
+    for (let i = 0; i < numTrees; i++) {
+      const x = (random() - 0.5) * this.forestSize;
+      const z = (random() - 0.5) * this.forestSize;
+      
+      // Skip center spawn area
+      if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
+      
+      const groundY = this.getTerrainHeight(x, z);
+      const isConifer = random() < FOREST.CONIFER_RATIO;
+      
+      let height, radius;
+      if (isConifer) {
+        height = FOREST.CONIFER_MIN_HEIGHT + random() * (FOREST.CONIFER_MAX_HEIGHT - FOREST.CONIFER_MIN_HEIGHT);
+        radius = FOREST.CONIFER_CROWN_RADIUS * (0.7 + random() * 0.6);
+      } else {
+        height = FOREST.DECIDUOUS_MIN_HEIGHT + random() * (FOREST.DECIDUOUS_MAX_HEIGHT - FOREST.DECIDUOUS_MIN_HEIGHT);
+        radius = FOREST.DECIDUOUS_CROWN_RADIUS * (0.7 + random() * 0.6);
       }
+      
+      obstacles.push({
+        type: 'tree',
+        x, z,
+        minY: groundY,
+        maxY: groundY + height,
+        radius: radius,
+      });
+    }
+    
+    // Generate bushes
+    const numBushes = Math.floor(this.forestSize * this.forestSize * FOREST.BUSH_DENSITY);
+    
+    for (let i = 0; i < numBushes; i++) {
+      const x = (random() - 0.5) * this.forestSize;
+      const z = (random() - 0.5) * this.forestSize;
+      
+      if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
+      
+      const groundY = this.getTerrainHeight(x, z);
+      const size = FOREST.BUSH_MIN_SIZE + random() * (FOREST.BUSH_MAX_SIZE - FOREST.BUSH_MIN_SIZE);
+      
+      obstacles.push({
+        type: 'bush',
+        x, z,
+        minY: groundY,
+        maxY: groundY + size * 1.5,
+        radius: size,
+      });
     }
     
     return obstacles;
   }
 
   /**
-   * Ray-AABB intersection test (2D)
-   * Returns distance to intersection or MAX_RANGE if no hit
+   * Ray-cylinder intersection (simplified for vertical cylinders)
    */
-  rayAABBIntersect(rayOriginX, rayOriginZ, rayDirX, rayDirZ, box) {
-    let tmin = 0;
-    let tmax = LIDAR.MAX_RANGE;
+  rayCylinderIntersect(rayX, rayY, rayZ, dirX, dirY, dirZ, obs) {
+    // 2D intersection with cylinder (ignore Y for horizontal intersection)
+    const dx = rayX - obs.x;
+    const dz = rayZ - obs.z;
     
-    // X slab
-    if (Math.abs(rayDirX) > 1e-8) {
-      const tx1 = (box.minX - rayOriginX) / rayDirX;
-      const tx2 = (box.maxX - rayOriginX) / rayDirX;
-      tmin = Math.max(tmin, Math.min(tx1, tx2));
-      tmax = Math.min(tmax, Math.max(tx1, tx2));
-    } else {
-      // Ray parallel to X axis
-      if (rayOriginX < box.minX || rayOriginX > box.maxX) {
-        return LIDAR.MAX_RANGE;
+    const a = dirX * dirX + dirZ * dirZ;
+    const b = 2 * (dx * dirX + dz * dirZ);
+    const c = dx * dx + dz * dz - obs.radius * obs.radius;
+    
+    const discriminant = b * b - 4 * a * c;
+    
+    if (discriminant < 0) return LIDAR.MAX_RANGE;
+    
+    const t1 = (-b - Math.sqrt(discriminant)) / (2 * a);
+    const t2 = (-b + Math.sqrt(discriminant)) / (2 * a);
+    
+    // Check if hit is within vertical bounds
+    for (const t of [t1, t2]) {
+      if (t > 0 && t < LIDAR.MAX_RANGE) {
+        const hitY = rayY + dirY * t;
+        if (hitY >= obs.minY && hitY <= obs.maxY) {
+          return t;
+        }
       }
     }
     
-    // Z slab
-    if (Math.abs(rayDirZ) > 1e-8) {
-      const tz1 = (box.minZ - rayOriginZ) / rayDirZ;
-      const tz2 = (box.maxZ - rayOriginZ) / rayDirZ;
-      tmin = Math.max(tmin, Math.min(tz1, tz2));
-      tmax = Math.min(tmax, Math.max(tz1, tz2));
-    } else {
-      // Ray parallel to Z axis
-      if (rayOriginZ < box.minZ || rayOriginZ > box.maxZ) {
-        return LIDAR.MAX_RANGE;
-      }
-    }
-    
-    if (tmax >= tmin && tmin > 0) {
-      return tmin;
-    }
     return LIDAR.MAX_RANGE;
   }
 
   /**
-   * Simulate LiDAR scan at a given position and heading
+   * Ray-ground intersection
    */
-  simulateLidar(x, z, heading) {
-    const distances = new Array(LIDAR.NUM_RAYS);
+  rayGroundIntersect(rayX, rayY, rayZ, dirX, dirY, dirZ) {
+    // Simple check: if ray points down, find intersection with terrain
+    if (dirY >= 0) return LIDAR.MAX_RANGE;
     
-    for (let i = 0; i < LIDAR.NUM_RAYS; i++) {
-      const worldAngle = heading + this.rayAngles[i];
-      const dirX = Math.cos(worldAngle);
-      const dirZ = Math.sin(worldAngle);
+    // Approximate: check a few points along ray
+    for (let t = 1; t < LIDAR.MAX_RANGE; t += 0.5) {
+      const px = rayX + dirX * t;
+      const py = rayY + dirY * t;
+      const pz = rayZ + dirZ * t;
+      
+      const groundY = this.getTerrainHeight(px, pz);
+      if (py <= groundY) {
+        return t;
+      }
+    }
+    
+    return LIDAR.MAX_RANGE;
+  }
+
+  /**
+   * Simulate LiDAR scan at a given position
+   */
+  simulateLidar(x, y, z, yaw = 0) {
+    const numRays = this.rayDirections.length;
+    const distances = new Array(numRays);
+    
+    const cosYaw = Math.cos(yaw);
+    const sinYaw = Math.sin(yaw);
+    
+    for (let i = 0; i < numRays; i++) {
+      const localDir = this.rayDirections[i];
+      
+      // Transform to world space
+      const worldDirX = localDir.x * cosYaw + localDir.z * sinYaw;
+      const worldDirY = localDir.y;
+      const worldDirZ = -localDir.x * sinYaw + localDir.z * cosYaw;
       
       let minDist = LIDAR.MAX_RANGE;
       
-      // Test against all obstacles
-      for (const obstacle of this.obstacles) {
-        const dist = this.rayAABBIntersect(x, z, dirX, dirZ, obstacle);
-        if (dist < minDist) {
-          minDist = dist;
-        }
+      // Check ground
+      const groundDist = this.rayGroundIntersect(x, y, z, worldDirX, worldDirY, worldDirZ);
+      if (groundDist < minDist) minDist = groundDist;
+      
+      // Check obstacles
+      for (const obs of this.obstacles) {
+        // Quick distance check
+        const dx = obs.x - x;
+        const dz = obs.z - z;
+        const dist2D = Math.sqrt(dx * dx + dz * dz);
+        
+        if (dist2D > LIDAR.MAX_RANGE + obs.radius) continue;
+        
+        const dist = this.rayCylinderIntersect(x, y, z, worldDirX, worldDirY, worldDirZ, obs);
+        if (dist < minDist) minDist = dist;
       }
       
       distances[i] = minDist;
@@ -137,136 +303,112 @@ export class SyntheticDataGenerator {
   }
 
   /**
-   * Generate a random position on a road segment
+   * Generate a random position in the forest
    */
-  sampleRoadPosition() {
-    // Randomly pick horizontal or vertical road
-    const isHorizontal = Math.random() < 0.5;
+  samplePosition() {
+    let seed = Date.now() + Math.random() * 1000000;
+    const random = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
     
-    if (isHorizontal) {
-      // Horizontal road (along X)
-      const roadIndex = Math.floor(Math.random() * (CITY.GRID_SIZE + 1));
-      const z = this.cityOffsetZ + roadIndex * this.blockUnitZ + CITY.ROAD_WIDTH / 2;
-      const x = this.cityOffsetX + CITY.ROAD_WIDTH / 2 + Math.random() * (this.citySizeX - CITY.ROAD_WIDTH);
-      
-      // Direction: +X or -X
-      const heading = Math.random() < 0.5 ? 0 : Math.PI;
-      
-      // Offset to the right lane
-      const perpZ = heading === 0 ? -LANE_OFFSET : LANE_OFFSET;
-      
-      return { x, z: z + perpZ, heading };
-    } else {
-      // Vertical road (along Z)
-      const roadIndex = Math.floor(Math.random() * (CITY.GRID_SIZE + 1));
-      const x = this.cityOffsetX + roadIndex * this.blockUnitX + CITY.ROAD_WIDTH / 2;
-      const z = this.cityOffsetZ + CITY.ROAD_WIDTH / 2 + Math.random() * (this.citySizeZ - CITY.ROAD_WIDTH);
-      
-      // Direction: +Z or -Z
-      const heading = Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2;
-      
-      // Offset to the right lane
-      const perpX = heading === Math.PI / 2 ? LANE_OFFSET : -LANE_OFFSET;
-      
-      return { x: x + perpX, z, heading };
-    }
+    const margin = 15;
+    const x = (random() - 0.5) * (this.forestSize - margin * 2);
+    const z = (random() - 0.5) * (this.forestSize - margin * 2);
+    
+    const groundY = this.getTerrainHeight(x, z);
+    const y = groundY + FOREST.FLYING_HEIGHT_MIN + 
+      random() * (FOREST.FLYING_HEIGHT_MAX - FOREST.FLYING_HEIGHT_MIN);
+    
+    return { x, y, z };
   }
 
   /**
-   * Generate a scenario with route information
+   * Generate a scenario with drone state and target
    */
   generateScenario() {
-    const pos = this.sampleRoadPosition();
+    let seed = Date.now() + Math.random() * 1000000;
+    const random = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
     
-    // Add some noise to position and heading to create diverse scenarios
-    const lateralNoise = (Math.random() - 0.5) * CITY.ROAD_WIDTH * 0.3;
-    const headingNoise = (Math.random() - 0.5) * 0.3; // ~17 degrees
+    // Sample drone position
+    const pos = this.samplePosition();
     
-    // Apply lateral offset perpendicular to heading
-    const perpX = -Math.sin(pos.heading);
-    const perpZ = Math.cos(pos.heading);
+    // Random velocity
+    const speed = random() * DRONE.MAX_SPEED * 0.6;
+    const velAngle = random() * Math.PI * 2;
+    const velPitch = (random() - 0.5) * 0.5;
     
-    pos.x += perpX * lateralNoise;
-    pos.z += perpZ * lateralNoise;
-    pos.heading += headingNoise;
+    const vx = Math.sin(velAngle) * Math.cos(velPitch) * speed;
+    const vy = Math.sin(velPitch) * speed;
+    const vz = Math.cos(velAngle) * Math.cos(velPitch) * speed;
     
-    // Generate a target point ahead (simulating route waypoint)
-    const lookahead = CONTROLLER.LOOKAHEAD_MIN + Math.random() * (CONTROLLER.LOOKAHEAD_MAX - CONTROLLER.LOOKAHEAD_MIN);
+    // Generate target
+    const targetDist = 10 + random() * 40;
+    const targetAngle = random() * Math.PI * 2;
+    const targetPitch = (random() - 0.5) * 0.6;
     
-    // Target is generally ahead but may have some offset (simulating turns)
-    const turnBias = (Math.random() - 0.5) * 0.5; // Slight turning tendency
-    const targetAngle = pos.heading + turnBias;
+    let targetX = pos.x + Math.sin(targetAngle) * Math.cos(targetPitch) * targetDist;
+    let targetZ = pos.z + Math.cos(targetAngle) * Math.cos(targetPitch) * targetDist;
     
-    const targetX = pos.x + Math.cos(targetAngle) * lookahead;
-    const targetZ = pos.z + Math.sin(targetAngle) * lookahead;
+    // Clamp target to forest bounds
+    const margin = 10;
+    targetX = Math.max(-this.halfSize + margin, Math.min(this.halfSize - margin, targetX));
+    targetZ = Math.max(-this.halfSize + margin, Math.min(this.halfSize - margin, targetZ));
     
-    // Random speed
-    const speed = Math.random() * VEHICLE.MAX_SPEED * 0.8;
+    const targetGroundY = this.getTerrainHeight(targetX, targetZ);
+    const targetY = targetGroundY + FOREST.FLYING_HEIGHT_MIN + 
+      random() * (FOREST.FLYING_HEIGHT_MAX - FOREST.FLYING_HEIGHT_MIN);
     
     return {
       x: pos.x,
+      y: pos.y,
       z: pos.z,
-      heading: pos.heading,
-      speed,
-      targetX,
-      targetZ,
-      lateralNoise,
+      vx, vy, vz,
+      targetX, targetY, targetZ,
+      yaw: velAngle,
     };
   }
 
   /**
-   * Compute Pure Pursuit steering for a scenario
+   * Compute controller output for a scenario
    */
-  computePurePursuitSteering(scenario) {
-    // Transform target to car-local coordinates
+  computeControl(scenario) {
+    // Vector to target
     const dx = scenario.targetX - scenario.x;
+    const dy = scenario.targetY - scenario.y;
     const dz = scenario.targetZ - scenario.z;
     
-    const cos = Math.cos(-scenario.heading);
-    const sin = Math.sin(-scenario.heading);
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
     
-    const localX = dx * cos - dz * sin;
-    const localZ = dx * sin + dz * cos;
-    
-    const lookaheadDist = Math.sqrt(localX * localX + localZ * localZ);
-    
-    if (lookaheadDist < 0.1) {
-      return 0;
+    // Normalize direction
+    let dirX = 0, dirY = 0, dirZ = 0;
+    if (dist > 0.1) {
+      dirX = dx / dist;
+      dirY = dy / dist;
+      dirZ = dz / dist;
     }
     
-    // Pure pursuit formula
-    const curvature = (2 * localZ) / (lookaheadDist * lookaheadDist);
-    let steeringAngle = Math.atan(VEHICLE.WHEELBASE * curvature);
+    // Proportional control towards target
+    const gain = 0.3;
+    let thrustX = dirX * Math.min(dist * gain, 1);
+    let thrustY = dirY * Math.min(dist * gain, 1);
+    let thrustZ = dirZ * Math.min(dist * gain, 1);
+    
+    // Velocity damping
+    const dampGain = 0.3;
+    thrustX -= scenario.vx * dampGain / DRONE.MAX_SPEED;
+    thrustY -= scenario.vy * dampGain / DRONE.MAX_SPEED;
+    thrustZ -= scenario.vz * dampGain / DRONE.MAX_SPEED;
     
     // Clamp
-    steeringAngle = Math.max(-VEHICLE.MAX_STEER_ANGLE, Math.min(VEHICLE.MAX_STEER_ANGLE, steeringAngle));
+    thrustX = Math.max(-1, Math.min(1, thrustX));
+    thrustY = Math.max(-1, Math.min(1, thrustY));
+    thrustZ = Math.max(-1, Math.min(1, thrustZ));
     
-    return steeringAngle;
-  }
-
-  /**
-   * Compute throttle based on steering and speed
-   */
-  computeThrottle(scenario, steering) {
-    // Base target speed
-    let targetSpeed = CONTROLLER.TARGET_SPEED;
-    
-    // Reduce speed for turns
-    const steeringMagnitude = Math.abs(steering) / VEHICLE.MAX_STEER_ANGLE;
-    if (steeringMagnitude > 0.2) {
-      targetSpeed = CONTROLLER.TURN_SPEED + 
-        (CONTROLLER.TARGET_SPEED - CONTROLLER.TURN_SPEED) * (1 - steeringMagnitude);
-    }
-    
-    // Simple P controller
-    const speedError = targetSpeed - scenario.speed;
-    const kP = 0.5;
-    let throttle = kP * speedError;
-    
-    // Clamp
-    throttle = Math.max(-1, Math.min(1, throttle));
-    
-    return throttle;
+    return { thrustX, thrustY, thrustZ };
   }
 
   /**
@@ -276,85 +418,69 @@ export class SyntheticDataGenerator {
     const scenario = this.generateScenario();
     
     // Simulate LiDAR
-    const lidarDistances = this.simulateLidar(scenario.x, scenario.z, scenario.heading);
+    const lidarDistances = this.simulateLidar(
+      scenario.x, scenario.y, scenario.z, scenario.yaw
+    );
     
-    // Compute control outputs
-    const steering = this.computePurePursuitSteering(scenario);
-    const throttle = this.computeThrottle(scenario, steering);
+    // Compute control
+    const control = this.computeControl(scenario);
     
-    // Compute route state
+    // Compute target direction (normalized)
     const dx = scenario.targetX - scenario.x;
+    const dy = scenario.targetY - scenario.y;
     const dz = scenario.targetZ - scenario.z;
-    const targetDist = Math.sqrt(dx * dx + dz * dz);
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
     
-    // Heading error
-    const targetHeading = Math.atan2(dz, dx);
-    let headingError = scenario.heading - targetHeading;
-    while (headingError > Math.PI) headingError -= 2 * Math.PI;
-    while (headingError < -Math.PI) headingError += 2 * Math.PI;
+    const targetDirX = dist > 0.001 ? dx / dist : 0;
+    const targetDirY = dist > 0.001 ? dy / dist : 0;
+    const targetDirZ = dist > 0.001 ? dz / dist : 1;
     
-    // Target direction in local coordinates
-    const cos = Math.cos(-scenario.heading);
-    const sin = Math.sin(-scenario.heading);
-    const localTargetX = (dx * cos - dz * sin) / Math.max(targetDist, 0.001);
-    const localTargetZ = (dx * sin + dz * cos) / Math.max(targetDist, 0.001);
-    
-    // Build input vector (same format as DataRecorder)
+    // Build input
     const normalizedLidar = lidarDistances.map(d => d / LIDAR.MAX_RANGE);
     
     const input = [
       ...normalizedLidar,
-      scenario.speed / VEHICLE.MAX_SPEED,
-      headingError / Math.PI,
-      scenario.lateralNoise / (VEHICLE.WIDTH * 2),
-      localTargetX,
-      localTargetZ,
+      scenario.vx / DRONE.MAX_SPEED,
+      scenario.vy / DRONE.MAX_SPEED,
+      scenario.vz / DRONE.MAX_SPEED,
+      targetDirX,
+      targetDirY,
+      targetDirZ,
     ];
     
-    // Target output
     const target = [
-      steering / VEHICLE.MAX_STEER_ANGLE,
-      throttle,
+      control.thrustX,
+      control.thrustY,
+      control.thrustZ,
     ];
     
     return { input, target };
   }
 
   /**
-   * Generate multiple training examples instantly
-   */
-  generateBatch(count) {
-    const examples = [];
-    for (let i = 0; i < count; i++) {
-      examples.push(this.generateExample());
-    }
-    return examples;
-  }
-
-  /**
-   * Generate diverse training data with specific scenarios
+   * Generate diverse training dataset
    */
   generateDiverseDataset(totalCount) {
     const examples = [];
     
-    // Distribution of scenarios
-    const straightCount = Math.floor(totalCount * 0.4);
-    const turnCount = Math.floor(totalCount * 0.3);
-    const recoveryCount = Math.floor(totalCount * 0.3);
+    // Distribution: normal navigation, obstacle avoidance, altitude changes
+    const normalCount = Math.floor(totalCount * 0.5);
+    const avoidanceCount = Math.floor(totalCount * 0.3);
+    const altitudeCount = Math.floor(totalCount * 0.2);
     
-    // Straight driving scenarios
-    for (let i = 0; i < straightCount; i++) {
-      examples.push(this.generateStraightScenario());
+    // Normal navigation
+    for (let i = 0; i < normalCount; i++) {
+      examples.push(this.generateExample());
     }
     
-    // Turning scenarios
-    for (let i = 0; i < turnCount; i++) {
-      examples.push(this.generateTurnScenario());
+    // Near-obstacle scenarios (for avoidance training)
+    for (let i = 0; i < avoidanceCount; i++) {
+      examples.push(this.generateNearObstacleExample());
     }
     
-    // Recovery scenarios (off-center, need to correct)
-    for (let i = 0; i < recoveryCount; i++) {
-      examples.push(this.generateRecoveryScenario());
+    // Altitude change scenarios
+    for (let i = 0; i < altitudeCount; i++) {
+      examples.push(this.generateAltitudeExample());
     }
     
     // Shuffle
@@ -367,83 +493,60 @@ export class SyntheticDataGenerator {
   }
 
   /**
-   * Generate a straight driving scenario
+   * Generate example near obstacles
    */
-  generateStraightScenario() {
-    const pos = this.sampleRoadPosition();
-    const lateralNoise = (Math.random() - 0.5) * CITY.ROAD_WIDTH * 0.1;
-    const headingNoise = (Math.random() - 0.5) * 0.1;
+  generateNearObstacleExample() {
+    // Find a random obstacle and place drone near it
+    if (this.obstacles.length === 0) {
+      return this.generateExample();
+    }
     
-    const perpX = -Math.sin(pos.heading);
-    const perpZ = Math.cos(pos.heading);
+    const obs = this.obstacles[Math.floor(Math.random() * this.obstacles.length)];
+    
+    const angle = Math.random() * Math.PI * 2;
+    const dist = obs.radius + 2 + Math.random() * 3;
+    
+    const x = obs.x + Math.cos(angle) * dist;
+    const z = obs.z + Math.sin(angle) * dist;
+    const y = (obs.minY + obs.maxY) / 2;
+    
+    // Target is away from obstacle
+    const targetAngle = angle + Math.PI + (Math.random() - 0.5) * Math.PI;
+    const targetDist = 15 + Math.random() * 20;
     
     const scenario = {
-      x: pos.x + perpX * lateralNoise,
-      z: pos.z + perpZ * lateralNoise,
-      heading: pos.heading + headingNoise,
-      speed: CONTROLLER.TARGET_SPEED * (0.7 + Math.random() * 0.3),
-      lateralNoise,
+      x, y, z,
+      vx: 0, vy: 0, vz: 0,
+      targetX: x + Math.cos(targetAngle) * targetDist,
+      targetY: y,
+      targetZ: z + Math.sin(targetAngle) * targetDist,
+      yaw: targetAngle,
     };
-    
-    // Target straight ahead
-    const lookahead = CONTROLLER.LOOKAHEAD_MIN + Math.random() * 5;
-    scenario.targetX = scenario.x + Math.cos(pos.heading) * lookahead;
-    scenario.targetZ = scenario.z + Math.sin(pos.heading) * lookahead;
     
     return this.buildExampleFromScenario(scenario);
   }
 
   /**
-   * Generate a turning scenario
+   * Generate altitude change example
    */
-  generateTurnScenario() {
-    const pos = this.sampleRoadPosition();
+  generateAltitudeExample() {
+    const pos = this.samplePosition();
+    
+    // Target at significantly different altitude
+    const altDiff = (Math.random() - 0.5) * 10;
     
     const scenario = {
       x: pos.x,
+      y: pos.y,
       z: pos.z,
-      heading: pos.heading,
-      speed: CONTROLLER.TURN_SPEED * (0.8 + Math.random() * 0.4),
-      lateralNoise: 0,
+      vx: 0,
+      vy: Math.random() * 2 - 1,
+      vz: 0,
+      targetX: pos.x + (Math.random() - 0.5) * 20,
+      targetY: Math.max(this.getTerrainHeight(pos.x, pos.z) + 2, pos.y + altDiff),
+      targetZ: pos.z + (Math.random() - 0.5) * 20,
+      yaw: Math.random() * Math.PI * 2,
     };
-    
-    // Target to the side (simulating a turn)
-    const turnDirection = Math.random() < 0.5 ? 1 : -1;
-    const turnAngle = (Math.PI / 4 + Math.random() * Math.PI / 4) * turnDirection;
-    const lookahead = CONTROLLER.LOOKAHEAD_MIN + Math.random() * 3;
-    
-    const targetAngle = pos.heading + turnAngle;
-    scenario.targetX = scenario.x + Math.cos(targetAngle) * lookahead;
-    scenario.targetZ = scenario.z + Math.sin(targetAngle) * lookahead;
-    
-    return this.buildExampleFromScenario(scenario);
-  }
-
-  /**
-   * Generate a recovery scenario (off-center, need correction)
-   */
-  generateRecoveryScenario() {
-    const pos = this.sampleRoadPosition();
-    
-    // Significant lateral offset
-    const lateralNoise = (Math.random() - 0.5) * CITY.ROAD_WIDTH * 0.4;
-    const headingNoise = (Math.random() - 0.5) * 0.4;
-    
-    const perpX = -Math.sin(pos.heading);
-    const perpZ = Math.cos(pos.heading);
-    
-    const scenario = {
-      x: pos.x + perpX * lateralNoise,
-      z: pos.z + perpZ * lateralNoise,
-      heading: pos.heading + headingNoise,
-      speed: VEHICLE.MAX_SPEED * (0.3 + Math.random() * 0.5),
-      lateralNoise,
-    };
-    
-    // Target back towards centerline
-    const lookahead = CONTROLLER.LOOKAHEAD_MIN + Math.random() * 5;
-    scenario.targetX = pos.x + Math.cos(pos.heading) * lookahead;
-    scenario.targetZ = pos.z + Math.sin(pos.heading) * lookahead;
     
     return this.buildExampleFromScenario(scenario);
   }
@@ -452,52 +555,49 @@ export class SyntheticDataGenerator {
    * Build training example from scenario
    */
   buildExampleFromScenario(scenario) {
-    const lidarDistances = this.simulateLidar(scenario.x, scenario.z, scenario.heading);
-    const steering = this.computePurePursuitSteering(scenario);
-    const throttle = this.computeThrottle(scenario, steering);
+    const lidarDistances = this.simulateLidar(
+      scenario.x, scenario.y, scenario.z, scenario.yaw
+    );
+    const control = this.computeControl(scenario);
     
     const dx = scenario.targetX - scenario.x;
+    const dy = scenario.targetY - scenario.y;
     const dz = scenario.targetZ - scenario.z;
-    const targetDist = Math.sqrt(dx * dx + dz * dz);
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
     
-    const targetHeading = Math.atan2(dz, dx);
-    let headingError = scenario.heading - targetHeading;
-    while (headingError > Math.PI) headingError -= 2 * Math.PI;
-    while (headingError < -Math.PI) headingError += 2 * Math.PI;
-    
-    const cos = Math.cos(-scenario.heading);
-    const sin = Math.sin(-scenario.heading);
-    const localTargetX = (dx * cos - dz * sin) / Math.max(targetDist, 0.001);
-    const localTargetZ = (dx * sin + dz * cos) / Math.max(targetDist, 0.001);
+    const targetDirX = dist > 0.001 ? dx / dist : 0;
+    const targetDirY = dist > 0.001 ? dy / dist : 0;
+    const targetDirZ = dist > 0.001 ? dz / dist : 1;
     
     const normalizedLidar = lidarDistances.map(d => d / LIDAR.MAX_RANGE);
     
     const input = [
       ...normalizedLidar,
-      scenario.speed / VEHICLE.MAX_SPEED,
-      headingError / Math.PI,
-      scenario.lateralNoise / (VEHICLE.WIDTH * 2),
-      localTargetX,
-      localTargetZ,
+      scenario.vx / DRONE.MAX_SPEED,
+      scenario.vy / DRONE.MAX_SPEED,
+      scenario.vz / DRONE.MAX_SPEED,
+      targetDirX,
+      targetDirY,
+      targetDirZ,
     ];
     
     const target = [
-      steering / VEHICLE.MAX_STEER_ANGLE,
-      throttle,
+      control.thrustX,
+      control.thrustY,
+      control.thrustZ,
     ];
     
     return { input, target };
   }
 
   /**
-   * Validate that generated data matches expected format
+   * Validate example
    */
   validateExample(example) {
     if (!example.input || !example.target) return false;
     if (example.input.length !== AUTOPILOT.INPUT_SIZE) return false;
     if (example.target.length !== AUTOPILOT.OUTPUT_SIZE) return false;
     
-    // Check for NaN
     for (const v of example.input) {
       if (isNaN(v)) return false;
     }
@@ -508,4 +608,3 @@ export class SyntheticDataGenerator {
     return true;
   }
 }
-

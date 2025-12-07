@@ -1,44 +1,62 @@
 /**
- * Configuration constants for the Manhattan Autopilot simulation
+ * Configuration constants for the Forest Drone Navigation simulation
+ * OPTIMIZED for performance
  */
 
-// City generation
-export const CITY = {
-  GRID_SIZE: 5,           // Number of blocks in each direction
-  BLOCK_SIZE_X: 30,       // Block width (east-west) in meters - shorter
-  BLOCK_SIZE_Z: 55,       // Block depth (north-south) in meters - longer
-  ROAD_WIDTH: 12,         // Width of roads in meters
-  SIDEWALK_WIDTH: 3,      // Width of sidewalks in meters
-  SIDEWALK_HEIGHT: 0.15,  // Height of sidewalks above road
-  STORY_HEIGHT: 3.5,        // Height per story in meters
-  BUILDING_MIN_STORIES: 1,
-  BUILDING_MAX_STORIES: 40,
-  BUILDING_MEDIAN_STORIES: 3, // Median for log-normal distribution
-  BUILDING_MARGIN: 2,     // Gap between buildings and sidewalk
+// Forest generation
+export const FOREST = {
+  SIZE: 150,              // Reduced forest area size (meters)
+  TERRAIN_SCALE: 0.015,   // Perlin noise scale for terrain (reduced for flatter terrain)
+  TERRAIN_HEIGHT: 5,      // Maximum terrain height variation (reduced from 12)
+  TERRAIN_SEGMENTS: 64,   // Reduced terrain mesh resolution (was 128)
+  
+  // Trees - DENSE FOREST (almost covering entire terrain)
+  TREE_DENSITY: 0.0175,   // Reduced 30% (~390 trees)
+  CONIFER_RATIO: 0.5,     // Ratio of coniferous to deciduous trees
+  
+  // Coniferous trees (pine/spruce) - BIGGER with reduced variation
+  CONIFER_MIN_HEIGHT: 18,
+  CONIFER_MAX_HEIGHT: 24,
+  CONIFER_TRUNK_RADIUS: 0.5,
+  CONIFER_CROWN_RADIUS: 4.0,
+  
+  // Deciduous trees (oak/maple style) - TALLER with reduced variation
+  DECIDUOUS_MIN_HEIGHT: 16,
+  DECIDUOUS_MAX_HEIGHT: 22,
+  DECIDUOUS_TRUNK_RADIUS: 0.6,
+  DECIDUOUS_CROWN_RADIUS: 5.0,
+  
+  // Bushes - denser with larger sizes
+  BUSH_DENSITY: 0.012,    // More bushes (~270)
+  BUSH_MIN_SIZE: 1.0,
+  BUSH_MAX_SIZE: 3.5,     // Can be much larger now
+  
+  // Canopy
+  CANOPY_HEIGHT: 12,      // Average height of forest canopy
+  FLYING_HEIGHT_MIN: 1.5, // Minimum safe flying height above ground
+  FLYING_HEIGHT_MAX: 10,  // Maximum flying height (under canopy)
 };
 
-// Vehicle physics
-export const VEHICLE = {
-  LENGTH: 4.5,            // Car length in meters
-  WIDTH: 2.0,             // Car width in meters
-  HEIGHT: 1.5,            // Car height in meters
-  WHEELBASE: 2.7,         // Distance between axles
-  MAX_SPEED: 35,          // Maximum speed in m/s (~126 km/h)
-  MAX_ACCELERATION: 12.0, // Maximum acceleration in m/s²
-  MAX_BRAKE: 15.0,        // Maximum braking deceleration
-  MAX_STEER_ANGLE: Math.PI / 4, // Maximum steering angle (45 degrees)
-  DRAG_COEFFICIENT: 0.01, // Air resistance (reduced)
+// Drone physics
+export const DRONE = {
+  SIZE: 0.8,              // Drone box size (meters)
+  MAX_SPEED: 8,           // Maximum speed in m/s
+  MAX_ACCELERATION: 6.0,  // Maximum acceleration in m/s²
+  DRAG_COEFFICIENT: 0.5,  // Air resistance
+  HOVER_POWER: 0.3,       // Power needed to maintain altitude
+  VERTICAL_SPEED: 4,      // Vertical movement speed
 };
 
-// LiDAR configuration
+// LiDAR configuration - OPTIMIZED
 export const LIDAR = {
-  NUM_RAYS: 64,           // Number of LiDAR rays
-  FOV: Math.PI,           // Field of view (180 degrees)
-  MAX_RANGE: 50,          // Maximum detection range in meters
-  HEIGHT: 1.2,            // Height of LiDAR sensor on car
-  VISUALIZE: true,        // Show LiDAR rays in scene
-  RAY_COLOR: 0x00ff00,    // Color of LiDAR rays
-  HIT_COLOR: 0xff0000,    // Color of hit points
+  NUM_HORIZONTAL_RAYS: 16,  // Reduced from 32
+  NUM_VERTICAL_RAYS: 4,     // Reduced from 8
+  HORIZONTAL_FOV: Math.PI * 1.5, // 270 degrees horizontal
+  VERTICAL_FOV: Math.PI / 4,     // 45 degrees vertical
+  MAX_RANGE: 25,            // Reduced range
+  VISUALIZE: false,         // DISABLED by default for performance
+  RAY_COLOR: 0x00ffaa,      // Color of LiDAR rays
+  HIT_COLOR: 0xff4444,      // Color of hit points
 };
 
 // Simulation
@@ -47,47 +65,58 @@ export const SIMULATION = {
   RENDER_FPS: 60,         // Target render framerate
 };
 
-// Autopilot neural network
+// Autopilot neural network - ADJUSTED for new LiDAR size
 export const AUTOPILOT = {
-  INPUT_SIZE: 64 + 5,     // LiDAR rays + [velocity, heading_error, lateral_offset, target_dx, target_dy]
-  HIDDEN_LAYERS: [128, 64, 32],
-  OUTPUT_SIZE: 2,         // [steering, throttle]
+  INPUT_SIZE: 16 * 4 + 6, // LiDAR rays (64) + [vx, vy, vz, target_dx, target_dy, target_dz]
+  HIDDEN_LAYERS: [64, 32],  // Smaller network
+  OUTPUT_SIZE: 3,         // [thrust_x, thrust_y, thrust_z]
   LEARNING_RATE: 0.001,
   BATCH_SIZE: 64,
-  LOOKAHEAD_DISTANCE: 10, // How far ahead to look for target waypoint
 };
 
-// Classical controller (Pure Pursuit)
+// Controller
 export const CONTROLLER = {
-  LOOKAHEAD_MIN: 8,
-  LOOKAHEAD_MAX: 25,
-  LOOKAHEAD_GAIN: 0.6,    // Lookahead increases with speed
-  TARGET_SPEED: 20,       // Target cruising speed in m/s
-  TURN_SPEED: 10,         // Speed when turning
+  TARGET_SPEED: 5,        // Target cruising speed in m/s
+  OBSTACLE_AVOIDANCE_DIST: 4, // Distance to start avoiding obstacles
+  WAYPOINT_REACH_DIST: 3, // Distance to consider waypoint reached
 };
 
 // Colors
 export const COLORS = {
-  ROAD: 0x333333,
-  ROAD_MARKING: 0xffffff,
-  SIDEWALK: 0x888888,
-  BUILDING_BASE: 0x556677,
-  BUILDING_ACCENT: 0x667788,
-  GROUND: 0x1a1a1a,
-  SKY: 0x0a0a15,
-  CAR_BODY: 0xff4444,
-  CAR_WINDOWS: 0x333333,
-  // Car colors for different modes
-  CAR_CLASSIC: 0x4488ff,    // Blue for classic controller
-  CAR_AUTOPILOT: 0x00ff88,  // Green for neural autopilot
-  CAR_MANUAL: 0xff8844,     // Orange for manual control
+  // Terrain
+  GROUND_LOW: 0x2d4a1c,   // Valley floor (darker green/brown)
+  GROUND_HIGH: 0x4a6b2a,  // Hilltops (lighter green)
+  
+  // Trees
+  CONIFER_TRUNK: 0x4a3728,
+  CONIFER_FOLIAGE: 0x1a4d2e,
+  DECIDUOUS_TRUNK: 0x5c4033,
+  DECIDUOUS_FOLIAGE: 0x228b22,
+  
+  // Bushes
+  BUSH: 0x2e5a1c,
+  
+  // Sky and atmosphere
+  SKY: 0x87ceeb,
+  FOG: 0x8fbc8f,
+  
+  // Drone
+  DRONE_BODY: 0xff6b35,
+  DRONE_LIGHT: 0x00ffff,
+  
+  // Drone colors for different modes
+  DRONE_CLASSIC: 0x00aaff,    // Blue for classic controller
+  DRONE_AUTOPILOT: 0x00ff88,  // Green for neural autopilot
+  DRONE_MANUAL: 0xff8844,     // Orange for manual control
+  
+  // Target
+  TARGET: 0xff00ff,
 };
 
 // Camera
 export const CAMERA = {
-  FOLLOW_HEIGHT: 25,
-  FOLLOW_DISTANCE: 35,
-  FOLLOW_SMOOTHING: 0.1,
-  BIRD_EYE_HEIGHT: 200,
+  FOLLOW_HEIGHT: 8,
+  FOLLOW_DISTANCE: 15,
+  FOLLOW_SMOOTHING: 0.08,
+  BIRD_EYE_HEIGHT: 80,
 };
-

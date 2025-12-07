@@ -1,4 +1,6 @@
-/* Manhattan Autopilot - Styles */
+/* Forest Navigator - Drone Autopilot Styles */
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
 * {
   margin: 0;
@@ -7,9 +9,9 @@
 }
 
 body {
-  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-  background: #0a0a0f;
-  color: #e0e0e0;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0d1f0d;
+  color: #e8f5e8;
   overflow: hidden;
   height: 100vh;
   width: 100vw;
@@ -44,56 +46,64 @@ body {
   position: absolute;
   top: 20px;
   left: 20px;
-  width: 280px;
+  width: 260px;
   max-height: calc(100vh - 40px);
   overflow-y: auto;
-  background: rgba(10, 10, 20, 0.92);
-  border: 1px solid rgba(0, 255, 136, 0.3);
-  border-radius: 8px;
-  padding: 16px;
+  background: linear-gradient(135deg, rgba(15, 35, 15, 0.95), rgba(10, 25, 10, 0.98));
+  border: 1px solid rgba(100, 200, 100, 0.25);
+  border-radius: 12px;
+  padding: 18px;
   pointer-events: auto;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5),
-              0 0 40px rgba(0, 255, 136, 0.1);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+              0 0 60px rgba(50, 150, 50, 0.08),
+              inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 #info-panel::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 
 #info-panel::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.2);
   border-radius: 3px;
 }
 
 #info-panel::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 136, 0.4);
+  background: rgba(100, 200, 100, 0.4);
   border-radius: 3px;
 }
 
 #info-panel h2 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
-  color: #00ff88;
-  margin-bottom: 16px;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+  color: #7fff7f;
+  margin-bottom: 18px;
+  letter-spacing: 1px;
+  text-shadow: 0 0 20px rgba(100, 255, 100, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#info-panel h2::before {
+  content: '🌲';
+  font-size: 18px;
 }
 
 #info-panel h3 {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
-  color: #888;
-  margin-bottom: 8px;
+  color: rgba(200, 230, 200, 0.6);
+  margin-bottom: 10px;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 2px;
 }
 
 .section {
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(100, 200, 100, 0.15);
 }
 
 .section:last-child {
@@ -111,12 +121,14 @@ body {
 }
 
 .stat .label {
-  color: #888;
+  color: rgba(200, 230, 200, 0.7);
+  font-weight: 400;
 }
 
 .stat span:last-child {
-  color: #00ff88;
-  font-weight: 500;
+  color: #90ee90;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Buttons */
@@ -128,54 +140,50 @@ body {
 
 button {
   flex: 1;
-  padding: 8px 12px;
-  background: rgba(0, 255, 136, 0.1);
-  border: 1px solid rgba(0, 255, 136, 0.4);
-  border-radius: 4px;
-  color: #00ff88;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(50, 120, 50, 0.3), rgba(30, 80, 30, 0.4));
+  border: 1px solid rgba(100, 200, 100, 0.35);
+  border-radius: 8px;
+  color: #90ee90;
   font-family: inherit;
   font-size: 11px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
 }
 
 button:hover:not(:disabled) {
-  background: rgba(0, 255, 136, 0.2);
-  border-color: #00ff88;
-  box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+  background: linear-gradient(135deg, rgba(60, 140, 60, 0.4), rgba(40, 100, 40, 0.5));
+  border-color: rgba(100, 255, 100, 0.5);
+  box-shadow: 0 0 20px rgba(100, 200, 100, 0.2);
+  transform: translateY(-1px);
 }
 
 button:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: translateY(0) scale(0.98);
 }
 
 button:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
 /* Primary button (Instant Train) */
 button.primary {
-  background: linear-gradient(135deg, rgba(0, 255, 136, 0.3), rgba(0, 200, 255, 0.2));
-  border: 1px solid #00ff88;
+  background: linear-gradient(135deg, rgba(80, 200, 80, 0.4), rgba(50, 150, 50, 0.5));
+  border: 1px solid rgba(100, 255, 100, 0.5);
   color: #fff;
   font-size: 12px;
   font-weight: 600;
-  padding: 10px 12px;
-  box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+  padding: 12px 14px;
+  box-shadow: 0 4px 20px rgba(50, 200, 50, 0.2);
 }
 
 button.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(0, 255, 136, 0.5), rgba(0, 200, 255, 0.3));
-  box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
-  transform: translateY(-1px);
-}
-
-button.primary:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
+  background: linear-gradient(135deg, rgba(100, 220, 100, 0.5), rgba(70, 180, 70, 0.6));
+  box-shadow: 0 6px 30px rgba(50, 255, 50, 0.3);
 }
 
 .instant-train {
@@ -186,17 +194,18 @@ button.primary:active:not(:disabled) {
 .radio-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .radio-group label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 12px;
-  color: #aaa;
+  color: rgba(200, 230, 200, 0.8);
   cursor: pointer;
   transition: color 0.2s;
+  padding: 4px 0;
 }
 
 .radio-group label:hover {
@@ -205,52 +214,77 @@ button.primary:active:not(:disabled) {
 
 .radio-group input[type="radio"] {
   appearance: none;
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(0, 255, 136, 0.4);
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(100, 200, 100, 0.4);
   border-radius: 50%;
   cursor: pointer;
   transition: all 0.2s;
+  position: relative;
 }
 
 .radio-group input[type="radio"]:checked {
-  border-color: #00ff88;
-  background: #00ff88;
-  box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+  border-color: #7fff7f;
+  background: transparent;
+}
+
+.radio-group input[type="radio"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  background: #7fff7f;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(100, 255, 100, 0.6);
 }
 
 /* Checkbox */
 #info-panel label:has(input[type="checkbox"]) {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 12px;
-  color: #aaa;
+  color: rgba(200, 230, 200, 0.8);
   cursor: pointer;
 }
 
 input[type="checkbox"] {
   appearance: none;
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(0, 255, 136, 0.4);
-  border-radius: 3px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(100, 200, 100, 0.4);
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
+  position: relative;
 }
 
 input[type="checkbox"]:checked {
-  background: #00ff88;
-  border-color: #00ff88;
-  box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+  background: rgba(100, 255, 100, 0.2);
+  border-color: #7fff7f;
+}
+
+input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #7fff7f;
+  font-size: 12px;
+  font-weight: bold;
 }
 
 /* Training Status */
 #training-status {
   font-size: 11px;
-  color: #ffaa00;
-  margin-top: 8px;
+  color: #ffd700;
+  margin-top: 10px;
   min-height: 16px;
+  font-weight: 500;
 }
 
 /* Help Panel */
@@ -258,18 +292,18 @@ input[type="checkbox"]:checked {
   position: absolute;
   bottom: 20px;
   right: 20px;
-  background: rgba(10, 10, 20, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(15, 35, 15, 0.9), rgba(10, 25, 10, 0.95));
+  border: 1px solid rgba(100, 200, 100, 0.2);
+  border-radius: 10px;
+  padding: 14px 18px;
   pointer-events: auto;
   backdrop-filter: blur(10px);
 }
 
 #help-panel p {
   font-size: 11px;
-  color: #888;
-  margin-bottom: 4px;
+  color: rgba(200, 230, 200, 0.6);
+  margin-bottom: 5px;
 }
 
 #help-panel p:last-child {
@@ -277,36 +311,51 @@ input[type="checkbox"]:checked {
 }
 
 #help-panel strong {
-  color: #00ff88;
-  font-weight: 500;
+  color: #90ee90;
+  font-weight: 600;
+  background: rgba(100, 200, 100, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 4px;
 }
 
 /* Speed indicator accent */
 #speed-value {
-  font-size: 18px !important;
+  font-size: 20px !important;
   font-weight: 700 !important;
+  color: #7fff7f !important;
 }
 
-/* Route status colors */
-#route-status {
-  font-weight: 500;
+#altitude-value {
+  color: #87ceeb !important;
+}
+
+/* Navigation status colors */
+#nav-status {
+  font-weight: 600;
 }
 
 /* Animations */
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(100, 255, 100, 0.2); }
+  50% { box-shadow: 0 0 30px rgba(100, 255, 100, 0.4); }
 }
 
 .collecting #training-status {
-  animation: pulse 1s infinite;
+  animation: pulse 1.5s ease-in-out infinite;
 }
 
 /* Responsive */
 @media (max-width: 768px) {
   #info-panel {
-    width: 240px;
-    padding: 12px;
+    width: 220px;
+    padding: 14px;
+    font-size: 12px;
   }
   
   #help-panel {
@@ -316,13 +365,19 @@ input[type="checkbox"]:checked {
 
 /* Loading state */
 body.loading::before {
-  content: 'Loading simulation...';
+  content: 'Generating forest...';
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 18px;
-  color: #00ff88;
+  font-size: 20px;
+  color: #7fff7f;
   z-index: 1000;
+  text-shadow: 0 0 30px rgba(100, 255, 100, 0.5);
 }
 
+/* Target distance highlight */
+#target-dist-value {
+  color: #ff69b4 !important;
+  font-weight: 700 !important;
+}

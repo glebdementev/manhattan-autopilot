@@ -1,7 +1,8 @@
 /**
  * Data recorder for collecting training examples from the classical controller
+ * Updated for drone navigation
  */
-import { LIDAR, VEHICLE, AUTOPILOT } from '../config.js';
+import { LIDAR, DRONE, AUTOPILOT } from '../config.js';
 
 export class DataRecorder {
   constructor() {
@@ -24,7 +25,7 @@ export class DataRecorder {
   /**
    * Record a single timestep
    */
-  record(lidarDistances, vehicleState, routeState, controlAction) {
+  record(lidarDistances, droneState, targetDirection, controlAction) {
     if (!this.isRecording) return;
     
     // Prepare input features
@@ -32,17 +33,19 @@ export class DataRecorder {
     
     const input = [
       ...normalizedLidar,
-      vehicleState.speed / VEHICLE.MAX_SPEED,
-      routeState.headingError / Math.PI,
-      routeState.lateralOffset / (VEHICLE.WIDTH * 2),
-      routeState.targetDirection.x,
-      routeState.targetDirection.z,
+      droneState.vx / DRONE.MAX_SPEED,
+      droneState.vy / DRONE.MAX_SPEED,
+      droneState.vz / DRONE.MAX_SPEED,
+      targetDirection.x,
+      targetDirection.y,
+      targetDirection.z,
     ];
     
-    // Prepare target (normalized control actions)
+    // Prepare target (control actions)
     const target = [
-      controlAction.steering / VEHICLE.MAX_STEER_ANGLE,
-      controlAction.throttle,
+      controlAction.thrustX,
+      controlAction.thrustY,
+      controlAction.thrustZ,
     ];
     
     // Store sample
@@ -109,24 +112,28 @@ export class DataRecorder {
       return {
         totalSamples: 0,
         episodes: this.episodeCount,
-        avgSteer: 0,
-        avgThrottle: 0,
+        avgThrustX: 0,
+        avgThrustY: 0,
+        avgThrustZ: 0,
       };
     }
     
-    let steerSum = 0;
-    let throttleSum = 0;
+    let thrustXSum = 0;
+    let thrustYSum = 0;
+    let thrustZSum = 0;
     
     this.data.forEach(sample => {
-      steerSum += Math.abs(sample.target[0]);
-      throttleSum += sample.target[1];
+      thrustXSum += Math.abs(sample.target[0]);
+      thrustYSum += Math.abs(sample.target[1]);
+      thrustZSum += Math.abs(sample.target[2]);
     });
     
     return {
       totalSamples: this.data.length,
       episodes: this.episodeCount,
-      avgSteer: steerSum / this.data.length,
-      avgThrottle: throttleSum / this.data.length,
+      avgThrustX: thrustXSum / this.data.length,
+      avgThrustY: thrustYSum / this.data.length,
+      avgThrustZ: thrustZSum / this.data.length,
     };
   }
 
@@ -168,7 +175,7 @@ export class DataRecorder {
   /**
    * Save data to localStorage
    */
-  saveToStorage(key = 'autopilot-training-data') {
+  saveToStorage(key = 'drone-training-data') {
     try {
       localStorage.setItem(key, this.exportJSON());
       console.log(`Saved ${this.data.length} samples to localStorage`);
@@ -182,7 +189,7 @@ export class DataRecorder {
   /**
    * Load data from localStorage
    */
-  loadFromStorage(key = 'autopilot-training-data') {
+  loadFromStorage(key = 'drone-training-data') {
     try {
       const saved = localStorage.getItem(key);
       if (saved) {
@@ -202,4 +209,3 @@ export class DataRecorder {
     return this.isRecording;
   }
 }
-

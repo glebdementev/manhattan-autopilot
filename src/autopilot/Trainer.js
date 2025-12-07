@@ -1,5 +1,6 @@
 /**
  * Training manager - coordinates data collection and model training
+ * Updated for drone navigation
  */
 import { AUTOPILOT } from '../config.js';
 import { SyntheticDataGenerator } from './SyntheticDataGenerator.js';
@@ -135,7 +136,6 @@ export class Trainer {
 
   /**
    * Generate synthetic training data instantly
-   * This bypasses real-time simulation and generates data geometrically
    */
   generateSyntheticData(count = 10000) {
     console.log(`Generating ${count} synthetic training examples...`);
@@ -175,7 +175,6 @@ export class Trainer {
 
   /**
    * Generate synthetic data and immediately train
-   * This is the fastest way to get a trained model
    */
   async instantTrain(sampleCount = 10000, epochs = 20) {
     // Generate data
@@ -188,7 +187,7 @@ export class Trainer {
   /**
    * Save model and data
    */
-  async saveAll(modelName = 'autopilot-model', dataKey = 'autopilot-training-data') {
+  async saveAll(modelName = 'drone-autopilot-model', dataKey = 'drone-training-data') {
     const modelSaved = await this.model.save(modelName);
     const dataSaved = this.recorder.saveToStorage(dataKey);
     
@@ -198,7 +197,7 @@ export class Trainer {
   /**
    * Load model and data
    */
-  async loadAll(modelName = 'autopilot-model', dataKey = 'autopilot-training-data') {
+  async loadAll(modelName = 'drone-autopilot-model', dataKey = 'drone-training-data') {
     const modelLoaded = await this.model.load(modelName);
     const dataLoaded = this.recorder.loadFromStorage(dataKey);
     
@@ -234,4 +233,3 @@ export class Trainer {
     return this.trainingInProgress;
   }
 }
-

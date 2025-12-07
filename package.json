@@ -1,7 +1,7 @@
 {
-  "name": "manhattan-autopilot",
-  "version": "1.0.0",
-  "description": "Browser-based self-driving car simulation with neural network autopilot",
+  "name": "forest-navigator",
+  "version": "2.0.0",
+  "description": "Browser-based drone navigation simulation through procedural forest with neural network autopilot",
   "type": "module",
   "scripts": {
     "dev": "vite",

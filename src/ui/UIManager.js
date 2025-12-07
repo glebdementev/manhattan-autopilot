@@ -1,5 +1,6 @@
 /**
  * UI Manager - handles all user interface elements and controls
+ * Updated for forest drone navigation
  */
 
 export class UIManager {
@@ -20,17 +21,17 @@ export class UIManager {
     container.id = 'ui-container';
     container.innerHTML = `
       <div id="info-panel">
-        <h2>Manhattan Autopilot</h2>
+        <h2>Forest Navigator</h2>
         
         <div class="section">
-          <h3>Vehicle</h3>
+          <h3>Drone</h3>
           <div class="stat">
             <span class="label">Speed:</span>
             <span id="speed-value">0.0</span> m/s
           </div>
           <div class="stat">
-            <span class="label">Steering:</span>
-            <span id="steering-value">0.0</span>°
+            <span class="label">Altitude:</span>
+            <span id="altitude-value">0.0</span> m
           </div>
           <div class="stat">
             <span class="label">Distance:</span>
@@ -39,27 +40,27 @@ export class UIManager {
         </div>
         
         <div class="section">
-          <h3>Route</h3>
+          <h3>Navigation</h3>
           <div class="stat">
-            <span class="label">Progress:</span>
-            <span id="progress-value">0</span>%
+            <span class="label">To Target:</span>
+            <span id="target-dist-value">0</span> m
           </div>
           <div class="stat">
             <span class="label">Status:</span>
-            <span id="route-status">Ready</span>
+            <span id="nav-status">Ready</span>
           </div>
         </div>
         
         <div class="section">
           <h3>Controls</h3>
           <div class="control-group">
-            <button id="btn-new-route">New Route</button>
+            <button id="btn-new-target">New Target</button>
             <button id="btn-reset">Reset</button>
           </div>
         </div>
         
         <div class="section">
-          <h3>Driver Mode</h3>
+          <h3>Pilot Mode</h3>
           <div class="radio-group">
             <label>
               <input type="radio" name="driver-mode" value="classic" checked>
@@ -71,7 +72,7 @@ export class UIManager {
             </label>
             <label>
               <input type="radio" name="driver-mode" value="manual">
-              Manual (WASD)
+              Manual (WASD/QE)
             </label>
           </div>
         </div>
@@ -112,7 +113,7 @@ export class UIManager {
             <button id="btn-import">Import Model</button>
           </div>
           <div class="control-group">
-            <button id="btn-download-data">Download Training Data</button>
+            <button id="btn-download-data">Download Data</button>
           </div>
           <input type="file" id="model-file-input" accept=".json" style="display: none;">
           <div id="training-status"></div>
@@ -128,10 +129,10 @@ export class UIManager {
       </div>
       
       <div id="help-panel">
-        <p><strong>W</strong> - Accelerate</p>
-        <p><strong>S</strong> - Brake</p>
-        <p><strong>A/D</strong> - Steer</p>
-        <p><strong>R</strong> - New route</p>
+        <p><strong>W/S</strong> - Forward/Back</p>
+        <p><strong>A/D</strong> - Left/Right</p>
+        <p><strong>Q/E</strong> - Up/Down</p>
+        <p><strong>R</strong> - New target</p>
         <p><strong>C</strong> - Toggle camera</p>
       </div>
     `;
@@ -141,15 +142,15 @@ export class UIManager {
     // Store references to elements
     this.elements = {
       speedValue: document.getElementById('speed-value'),
-      steeringValue: document.getElementById('steering-value'),
+      altitudeValue: document.getElementById('altitude-value'),
       distanceValue: document.getElementById('distance-value'),
-      progressValue: document.getElementById('progress-value'),
-      routeStatus: document.getElementById('route-status'),
+      targetDistValue: document.getElementById('target-dist-value'),
+      navStatus: document.getElementById('nav-status'),
       samplesValue: document.getElementById('samples-value'),
       lossValue: document.getElementById('loss-value'),
       modelStatus: document.getElementById('model-status'),
       trainingStatus: document.getElementById('training-status'),
-      btnNewRoute: document.getElementById('btn-new-route'),
+      btnNewTarget: document.getElementById('btn-new-target'),
       btnReset: document.getElementById('btn-reset'),
       btnInstantTrain: document.getElementById('btn-instant-train'),
       btnExport: document.getElementById('btn-export'),
@@ -169,8 +170,8 @@ export class UIManager {
    */
   setupEventListeners() {
     // Button clicks
-    this.elements.btnNewRoute.addEventListener('click', () => {
-      this.emit('newRoute');
+    this.elements.btnNewTarget.addEventListener('click', () => {
+      this.emit('newTarget');
     });
     
     this.elements.btnReset.addEventListener('click', () => {
@@ -249,20 +250,20 @@ export class UIManager {
   }
 
   /**
-   * Update vehicle stats display
+   * Update drone stats display
    */
-  updateVehicleStats(speed, steering, distance) {
+  updateDroneStats(speed, altitude, distance) {
     this.elements.speedValue.textContent = speed.toFixed(1);
-    this.elements.steeringValue.textContent = (steering * 180 / Math.PI).toFixed(1);
+    this.elements.altitudeValue.textContent = altitude.toFixed(1);
     this.elements.distanceValue.textContent = Math.round(distance);
   }
 
   /**
-   * Update route progress display
+   * Update navigation display
    */
-  updateRouteProgress(progress, status) {
-    this.elements.progressValue.textContent = Math.round(progress * 100);
-    this.elements.routeStatus.textContent = status;
+  updateNavigation(distToTarget, status) {
+    this.elements.targetDistValue.textContent = Math.round(distToTarget);
+    this.elements.navStatus.textContent = status;
   }
 
   /**
@@ -344,4 +345,3 @@ export class UIManager {
     return radio ? radio.value : 'chase';
   }
 }
-

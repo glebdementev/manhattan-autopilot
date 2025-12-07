@@ -1,99 +1,145 @@
 /**
- * LiDAR sensor simulation using Three.js raycasting
+ * 3D LiDAR sensor simulation for drone navigation
+ * OPTIMIZED: Reduced rays, frame skipping, simplified visualization
  */
 import * as THREE from 'three';
-import { LIDAR, VEHICLE } from '../config.js';
+import { LIDAR } from '../config.js';
 
 export class Lidar {
-  constructor(car) {
-    this.car = car;
+  constructor(drone) {
+    this.drone = drone;
     this.raycaster = new THREE.Raycaster();
     this.raycaster.far = LIDAR.MAX_RANGE;
     
+    // Total rays = horizontal * vertical
+    this.numRays = LIDAR.NUM_HORIZONTAL_RAYS * LIDAR.NUM_VERTICAL_RAYS;
+    
     // Store latest readings
-    this.distances = new Array(LIDAR.NUM_RAYS).fill(LIDAR.MAX_RANGE);
+    this.distances = new Array(this.numRays).fill(LIDAR.MAX_RANGE);
     this.hitPoints = [];
     
-    // Visualization
+    // Frame skipping for performance
+    this.frameCounter = 0;
+    this.scanInterval = 2; // Scan every 2 frames
+    
+    // Visualization (disabled by default)
     this.visualGroup = new THREE.Group();
     this.visualGroup.name = 'lidar_visual';
-    this.rayLines = [];
-    this.hitMarkers = [];
+    this.visualGroup.visible = LIDAR.VISUALIZE;
     
     if (LIDAR.VISUALIZE) {
       this.setupVisualization();
     }
     
-    // Pre-calculate ray angles (relative to car heading)
-    this.rayAngles = [];
-    const startAngle = -LIDAR.FOV / 2;
-    const angleStep = LIDAR.FOV / (LIDAR.NUM_RAYS - 1);
+    // Pre-calculate ray directions
+    this.rayDirections = this.calculateRayDirections();
     
-    for (let i = 0; i < LIDAR.NUM_RAYS; i++) {
-      this.rayAngles.push(startAngle + i * angleStep);
-    }
+    // Reusable vectors
+    this._direction = new THREE.Vector3();
+    this._origin = new THREE.Vector3();
   }
 
   /**
-   * Setup visualization elements
+   * Calculate all ray directions (in local drone space)
+   */
+  calculateRayDirections() {
+    const directions = [];
+    
+    const hFov = LIDAR.HORIZONTAL_FOV;
+    const vFov = LIDAR.VERTICAL_FOV;
+    const numH = LIDAR.NUM_HORIZONTAL_RAYS;
+    const numV = LIDAR.NUM_VERTICAL_RAYS;
+    
+    for (let v = 0; v < numV; v++) {
+      const verticalAngle = -vFov / 2 + (v / Math.max(numV - 1, 1)) * vFov;
+      
+      for (let h = 0; h < numH; h++) {
+        const horizontalAngle = -hFov / 2 + (h / Math.max(numH - 1, 1)) * hFov;
+        
+        const cosV = Math.cos(verticalAngle);
+        const sinV = Math.sin(verticalAngle);
+        const cosH = Math.cos(horizontalAngle);
+        const sinH = Math.sin(horizontalAngle);
+        
+        directions.push({
+          x: sinH * cosV,
+          y: sinV,
+          z: cosH * cosV,
+        });
+      }
+    }
+    
+    return directions;
+  }
+
+  /**
+   * Setup simplified visualization
    */
   setupVisualization() {
-    const rayMaterial = new THREE.LineBasicMaterial({ 
-      color: LIDAR.RAY_COLOR,
-      opacity: 0.3,
-      transparent: true,
-    });
+    // Just show hit points, not rays (much faster)
+    const hitGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(this.numRays * 3);
+    hitGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     
-    const hitMaterial = new THREE.MeshBasicMaterial({ 
+    const hitMaterial = new THREE.PointsMaterial({
       color: LIDAR.HIT_COLOR,
+      size: 0.3,
+      sizeAttenuation: true,
     });
-    const hitGeometry = new THREE.SphereGeometry(0.15, 8, 8);
     
-    for (let i = 0; i < LIDAR.NUM_RAYS; i++) {
-      // Ray line
-      const lineGeometry = new THREE.BufferGeometry();
-      const positions = new Float32Array(6); // 2 points * 3 coords
-      lineGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      
-      const line = new THREE.Line(lineGeometry, rayMaterial);
-      line.frustumCulled = false;
-      this.rayLines.push(line);
-      this.visualGroup.add(line);
-      
-      // Hit marker
-      const marker = new THREE.Mesh(hitGeometry, hitMaterial);
-      marker.visible = false;
-      this.hitMarkers.push(marker);
-      this.visualGroup.add(marker);
-    }
+    this.hitPointsCloud = new THREE.Points(hitGeometry, hitMaterial);
+    this.visualGroup.add(this.hitPointsCloud);
   }
 
   /**
-   * Perform LiDAR scan
-   * @param {Array} obstacles - Array of Three.js objects to raycast against
+   * Perform 3D LiDAR scan with frame skipping
    */
   scan(obstacles) {
+    // Frame skipping for performance
+    this.frameCounter++;
+    if (this.frameCounter % this.scanInterval !== 0) {
+      return this.distances;
+    }
+    
     this.hitPoints = [];
     
-    // Get car position and heading
-    const carPos = new THREE.Vector3(this.car.x, LIDAR.HEIGHT, this.car.z);
+    const droneX = this.drone.x;
+    const droneY = this.drone.y;
+    const droneZ = this.drone.z;
+    const droneYaw = this.drone.yaw;
     
-    for (let i = 0; i < LIDAR.NUM_RAYS; i++) {
-      // Calculate ray direction in world space
-      const worldAngle = this.car.heading + this.rayAngles[i];
-      const direction = new THREE.Vector3(
-        Math.cos(worldAngle),
-        0,
-        Math.sin(worldAngle)
+    const cosYaw = Math.cos(droneYaw);
+    const sinYaw = Math.sin(droneYaw);
+    
+    this._origin.set(droneX, droneY, droneZ);
+    
+    const positions = LIDAR.VISUALIZE && this.hitPointsCloud 
+      ? this.hitPointsCloud.geometry.attributes.position.array 
+      : null;
+    
+    for (let i = 0; i < this.numRays; i++) {
+      const localDir = this.rayDirections[i];
+      
+      // Transform direction from local to world space
+      this._direction.set(
+        localDir.x * cosYaw + localDir.z * sinYaw,
+        localDir.y,
+        -localDir.x * sinYaw + localDir.z * cosYaw
       ).normalize();
       
-      // Perform raycast
-      this.raycaster.set(carPos, direction);
-      const intersections = this.raycaster.intersectObjects(obstacles, true);
+      this.raycaster.set(this._origin, this._direction);
+      const intersections = this.raycaster.intersectObjects(obstacles, false);
       
       if (intersections.length > 0) {
         const hit = intersections[0];
         this.distances[i] = hit.distance;
+        
+        if (positions) {
+          positions[i * 3] = hit.point.x;
+          positions[i * 3 + 1] = hit.point.y;
+          positions[i * 3 + 2] = hit.point.z;
+        }
+        
         this.hitPoints.push({
           x: hit.point.x,
           y: hit.point.y,
@@ -101,126 +147,72 @@ export class Lidar {
           distance: hit.distance,
           rayIndex: i,
         });
-        
-        // Update visualization
-        if (LIDAR.VISUALIZE) {
-          this.updateRayVisual(i, carPos, hit.point, true);
-        }
       } else {
         this.distances[i] = LIDAR.MAX_RANGE;
         
-        // Update visualization (no hit)
-        if (LIDAR.VISUALIZE) {
-          const endPoint = new THREE.Vector3(
-            carPos.x + direction.x * LIDAR.MAX_RANGE,
-            carPos.y,
-            carPos.z + direction.z * LIDAR.MAX_RANGE
-          );
-          this.updateRayVisual(i, carPos, endPoint, false);
+        if (positions) {
+          // Hide non-hit points far away
+          positions[i * 3] = droneX;
+          positions[i * 3 + 1] = droneY - 1000;
+          positions[i * 3 + 2] = droneZ;
         }
       }
+    }
+    
+    if (positions && this.hitPointsCloud) {
+      this.hitPointsCloud.geometry.attributes.position.needsUpdate = true;
     }
     
     return this.distances;
   }
 
-  /**
-   * Update ray visualization
-   */
-  updateRayVisual(index, start, end, hasHit) {
-    const line = this.rayLines[index];
-    const positions = line.geometry.attributes.position.array;
-    
-    positions[0] = start.x;
-    positions[1] = start.y;
-    positions[2] = start.z;
-    positions[3] = end.x;
-    positions[4] = end.y;
-    positions[5] = end.z;
-    
-    line.geometry.attributes.position.needsUpdate = true;
-    
-    // Update hit marker
-    const marker = this.hitMarkers[index];
-    if (hasHit) {
-      marker.position.copy(end);
-      marker.visible = true;
-    } else {
-      marker.visible = false;
-    }
-  }
-
-  /**
-   * Get normalized distances (0-1, where 1 = max range)
-   */
   getNormalizedDistances() {
     return this.distances.map(d => d / LIDAR.MAX_RANGE);
   }
 
-  /**
-   * Get distances array
-   */
   getDistances() {
     return this.distances;
   }
 
-  /**
-   * Get hit points
-   */
   getHitPoints() {
     return this.hitPoints;
   }
 
-  /**
-   * Get minimum distance (for collision detection)
-   */
   getMinDistance() {
     return Math.min(...this.distances);
   }
 
-  /**
-   * Get distances in a specific angular range
-   */
-  getDistancesInRange(startAngle, endAngle) {
-    const results = [];
+  getForwardMinDistance() {
+    const numH = LIDAR.NUM_HORIZONTAL_RAYS;
+    const numV = LIDAR.NUM_VERTICAL_RAYS;
     
-    for (let i = 0; i < LIDAR.NUM_RAYS; i++) {
-      const angle = this.rayAngles[i];
-      if (angle >= startAngle && angle <= endAngle) {
-        results.push(this.distances[i]);
+    let minDist = LIDAR.MAX_RANGE;
+    const hCenter = Math.floor(numH / 2);
+    const hRange = Math.max(1, Math.floor(numH / 4));
+    
+    for (let v = 0; v < numV; v++) {
+      for (let h = hCenter - hRange; h <= hCenter + hRange; h++) {
+        if (h >= 0 && h < numH) {
+          const idx = v * numH + h;
+          if (this.distances[idx] < minDist) {
+            minDist = this.distances[idx];
+          }
+        }
       }
     }
     
-    return results;
+    return minDist;
   }
 
-  /**
-   * Get forward-facing distances (center rays)
-   */
-  getForwardDistances(fov = Math.PI / 4) {
-    return this.getDistancesInRange(-fov / 2, fov / 2);
+  isPathClear(minClearance = 3) {
+    return this.getForwardMinDistance() > minClearance;
   }
 
-  /**
-   * Check if path ahead is clear
-   */
-  isPathClear(minClearance = 5) {
-    const forwardDist = this.getForwardDistances();
-    return Math.min(...forwardDist) > minClearance;
-  }
-
-  /**
-   * Get the visualization group
-   */
   getVisualGroup() {
     return this.visualGroup;
   }
 
-  /**
-   * Toggle visualization
-   */
   setVisualizationEnabled(enabled) {
     this.visualGroup.visible = enabled;
   }
 }
-

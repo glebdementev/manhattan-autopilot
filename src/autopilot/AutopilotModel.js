@@ -1,9 +1,9 @@
 /**
- * TensorFlow.js neural network autopilot model
- * Takes LiDAR and state inputs, outputs steering and throttle commands
+ * TensorFlow.js neural network autopilot model for drone navigation
+ * Takes 3D LiDAR and state inputs, outputs thrust commands
  */
 import * as tf from '@tensorflow/tfjs';
-import { AUTOPILOT, LIDAR, VEHICLE } from '../config.js';
+import { AUTOPILOT, LIDAR, DRONE } from '../config.js';
 
 export class AutopilotModel {
   constructor() {
@@ -42,7 +42,7 @@ export class AutopilotModel {
       }
     }
     
-    // Output layer: [steering, throttle] with tanh for [-1, 1] range
+    // Output layer: [thrustX, thrustY, thrustZ] with tanh for [-1, 1] range
     this.model.add(tf.layers.dense({
       units: AUTOPILOT.OUTPUT_SIZE,
       activation: 'tanh',
@@ -65,18 +65,19 @@ export class AutopilotModel {
   /**
    * Prepare input tensor from sensor data
    */
-  prepareInput(lidarDistances, vehicleState, routeState) {
+  prepareInput(lidarDistances, droneState, targetDirection) {
     // Normalize LiDAR distances
     const normalizedLidar = lidarDistances.map(d => d / LIDAR.MAX_RANGE);
     
     // Combine all inputs
     const input = [
-      ...normalizedLidar,                              // 64 values
-      vehicleState.speed / VEHICLE.MAX_SPEED,          // 1 value
-      routeState.headingError / Math.PI,               // 1 value (normalized to [-1, 1])
-      routeState.lateralOffset / (VEHICLE.WIDTH * 2),  // 1 value (normalized)
-      routeState.targetDirection.x,                    // 1 value
-      routeState.targetDirection.z,                    // 1 value
+      ...normalizedLidar,                              // 256 values (32*8)
+      droneState.vx / DRONE.MAX_SPEED,                 // 1 value
+      droneState.vy / DRONE.MAX_SPEED,                 // 1 value
+      droneState.vz / DRONE.MAX_SPEED,                 // 1 value
+      targetDirection.x,                               // 1 value
+      targetDirection.y,                               // 1 value
+      targetDirection.z,                               // 1 value
     ];
     
     return input;
@@ -85,13 +86,13 @@ export class AutopilotModel {
   /**
    * Run inference to get control commands
    */
-  predict(lidarDistances, vehicleState, routeState) {
+  predict(lidarDistances, droneState, targetDirection) {
     if (!this.model) {
       console.warn('Model not built yet');
-      return { steering: 0, throttle: 0 };
+      return { thrustX: 0, thrustY: 0, thrustZ: 0 };
     }
     
-    const input = this.prepareInput(lidarDistances, vehicleState, routeState);
+    const input = this.prepareInput(lidarDistances, droneState, targetDirection);
     
     // Run prediction
     const inputTensor = tf.tensor2d([input]);
@@ -102,11 +103,11 @@ export class AutopilotModel {
     inputTensor.dispose();
     outputTensor.dispose();
     
-    // Map output to control commands
-    const steering = output[0] * VEHICLE.MAX_STEER_ANGLE;
-    const throttle = output[1];
-    
-    return { steering, throttle };
+    return {
+      thrustX: output[0],
+      thrustY: output[1],
+      thrustZ: output[2],
+    };
   }
 
   /**
@@ -220,7 +221,8 @@ export class AutopilotModel {
       
       // Create export object
       const exportData = {
-        version: 1,
+        version: 2,
+        type: 'drone-autopilot',
         timestamp: Date.now(),
         config: {
           inputSize: AUTOPILOT.INPUT_SIZE,
@@ -236,7 +238,7 @@ export class AutopilotModel {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `autopilot-model-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `drone-autopilot-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -292,7 +294,7 @@ export class AutopilotModel {
   /**
    * Save model to browser storage
    */
-  async save(name = 'autopilot-model') {
+  async save(name = 'drone-autopilot-model') {
     if (!this.model) {
       console.warn('No model to save');
       return false;
@@ -311,7 +313,7 @@ export class AutopilotModel {
   /**
    * Load model from browser storage
    */
-  async load(name = 'autopilot-model') {
+  async load(name = 'drone-autopilot-model') {
     try {
       this.model = await tf.loadLayersModel(`localstorage://${name}`);
       
@@ -371,4 +373,3 @@ export class AutopilotModel {
     }
   }
 }
-
