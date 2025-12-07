@@ -233,16 +233,13 @@ export class RLEnvironment {
   }
   
   /**
-   * Get current observation - uses ObservationBuilder (single source of truth)
+   * Get current observation - uses ObservationBuilder with full lidar data
    */
   getObservation() {
     const state = this.drone.getState();
     const target = this.targetManager.getPosition();
     
-    return this.observationBuilder.buildFromPositions(
-      state.x, state.y, state.z,
-      target.x, target.y, target.z
-    );
+    return this.observationBuilder.build(state, this.lidar, target);
   }
   
   /**

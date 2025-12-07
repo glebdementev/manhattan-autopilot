@@ -1,13 +1,17 @@
 /**
- * Reinforcement Learning Agent - Hybrid Approach
+ * Reinforcement Learning Agent - Residual Policy
  * 
- * BASE ACTION: Always go towards target (observation = direction to target)
- * RL CORRECTION: Network learns adjustments for obstacle avoidance
+ * Observation (9 values):
+ * - [0-2] Target direction (X, Y, Z)
+ * - [3-6] 4 closest obstacle distances
+ * - [7] Nadir distance
+ * - [8] Zenith distance
  * 
- * Final action = base_action + learned_correction
+ * The network outputs a CORRECTION to the base action (target direction).
+ * Final action = base_action + correction
  * 
- * This guarantees the drone always moves towards the target,
- * while RL learns the nuances of obstacle avoidance.
+ * This allows the network to learn obstacle avoidance while
+ * the base policy handles navigation.
  */
 
 import { RL_CONFIG } from '../config.js';
@@ -21,7 +25,7 @@ export class RLAgent {
     this.observationSize = observationSize;
     this.actionSize = actionSize;
     
-    // Networks - correction network outputs small adjustments
+    // Networks
     this.policyNetwork = new PolicyNetwork(observationSize, actionSize);
     this.valueNetwork = new ValueNetwork(observationSize);
     
@@ -31,47 +35,41 @@ export class RLAgent {
     this.episodeCount = 0;
     this.debugCounter = 0;
     
-    // How much to trust the base action vs learned correction
-    // 1.0 = pure base action, 0.0 = pure learned action
-    this.baseActionWeight = 0.8;
-    
-    console.log('RL Agent initialized (hybrid: base + correction)');
-    console.log(`Base action weight: ${this.baseActionWeight}`);
+    console.log('RL Agent initialized (residual policy)');
+    console.log(`Observation size: ${observationSize}, Action size: ${actionSize}`);
   }
   
   /**
    * Select action given observation
    * 
-   * observation = [dirX, dirY, dirZ] = direction to target
+   * observation[0:3] = target direction (base action)
+   * observation[3:9] = obstacle/lidar data
    * 
-   * Base action = observation (go towards target)
-   * Correction = network output (learned adjustments)
-   * Final = weighted combination
+   * Network outputs correction, final = base + correction
    */
   selectAction(observation, training = false) {
-    // Base action: go directly towards target
-    const baseAction = [...observation];
+    // Base action = target direction (first 3 elements of observation)
+    const baseAction = [observation[0], observation[1], observation[2]];
     
     // Get learned correction from network
     const correction = this.policyNetwork.predict(observation);
     
-    // Combine: mostly base action, small correction
+    // Final action = base + correction (network has full authority to override)
     const action = baseAction.map((base, i) => {
-      const combined = this.baseActionWeight * base + (1 - this.baseActionWeight) * correction[i];
-      return Math.max(-1, Math.min(1, combined));
+      const final = base + correction[i];
+      return Math.max(-1, Math.min(1, final));
     });
     
     // Debug logging
     this.debugCounter++;
-    if (this.debugCounter <= 20 || this.debugCounter % 500 === 0) {
-      console.log(`[ACTION] obs=[${observation.map(v => v.toFixed(2)).join(', ')}]`);
-      console.log(`  base=[${baseAction.map(v => v.toFixed(2)).join(', ')}] corr=[${correction.map(v => v.toFixed(2)).join(', ')}]`);
-      console.log(`  final=[${action.map(v => v.toFixed(2)).join(', ')}]`);
+    if (this.debugCounter <= 10 || this.debugCounter % 500 === 0) {
+      const obsDists = observation.slice(3, 7).map(d => d.toFixed(2)).join(', ');
+      console.log(`[ACTION] base=[${baseAction.map(v => v.toFixed(2)).join(', ')}] corr=[${correction.map(v => v.toFixed(2)).join(', ')}]`);
+      console.log(`  final=[${action.map(v => v.toFixed(2)).join(', ')}] obs_dists=[${obsDists}]`);
     }
     
     if (training) {
-      const noisyAction = this.explorationManager.addNoise(action, true);
-      return noisyAction;
+      return this.explorationManager.addNoise(action, true);
     }
     
     return action;
@@ -105,7 +103,6 @@ export class RLAgent {
     return {
       ...trainingStats,
       explorationRate: this.explorationManager.getRate(),
-      baseActionWeight: this.baseActionWeight,
     };
   }
   

@@ -34,7 +34,7 @@ export class CurriculumManager {
     // Track current target (don't regenerate on failure)
     this.currentTargetPosition = null;
     this.attemptsOnCurrentTarget = 0;
-    this.maxAttemptsPerTarget = 100; // Allow MANY retries on same target
+    this.maxAttemptsPerTarget = 9999; // Keep retrying until success
   }
   
   /**

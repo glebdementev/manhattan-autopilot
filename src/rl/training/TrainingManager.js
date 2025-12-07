@@ -1,16 +1,12 @@
 /**
- * Training Manager for Hybrid RL Agent
+ * Training Manager for Residual Policy RL Agent
  * 
  * The agent uses: final_action = base_action + correction
- * Where base_action = observation (go towards target)
+ * Where base_action = observation[0:3] (target direction)
  * 
- * We train the correction network to improve rewards:
- * - Positive reward: the correction was helpful (or at least not harmful)
- * - Negative reward: the correction made things worse
- * 
- * Training target: 
- * - Good outcome → reinforce current correction
- * - Bad outcome → reduce correction magnitude (let base action dominate)
+ * We train the correction network:
+ * - Positive reward: correction was helpful, reinforce it
+ * - Negative reward: correction was harmful, target = zero (trust base)
  */
 
 import * as tf from '@tensorflow/tfjs';
@@ -103,11 +99,13 @@ export class TrainingManager {
   /**
    * Train correction network
    * 
-   * The correction is: action - observation (since action = obs + correction)
+   * observation[0:3] = base action (target direction)
+   * correction = action - base
    * 
    * Strategy:
-   * - Good reward (>0): The correction was helpful, keep it
-   * - Bad reward (<0): The correction was harmful, target = zero (let base action work)
+   * - Good reward: reinforce the correction that worked
+   * - Bad reward: target = zero correction (let base action work)
+   * - Very close obstacle: learn to steer away
    */
   async trainPolicyNetwork(observations, actions, rewards) {
     const trainObs = [];
@@ -118,22 +116,34 @@ export class TrainingManager {
       const action = actions[i];
       const reward = rewards[i];
       
-      // Compute what correction was applied
-      // action = 0.8 * obs + 0.2 * correction
-      // So: correction = (action - 0.8 * obs) / 0.2
-      const baseWeight = 0.8;
-      const correction = obs.map((o, j) => (action[j] - baseWeight * o) / (1 - baseWeight));
+      // Base action = target direction (first 3 elements)
+      const baseAction = [obs[0], obs[1], obs[2]];
+      
+      // Correction that was applied: action = base + correction
+      const correction = [
+        action[0] - baseAction[0],
+        action[1] - baseAction[1],
+        action[2] - baseAction[2],
+      ];
+      
+      // Check if any obstacle is very close (< 0.2 normalized = 5m)
+      const obsDists = obs.slice(3, 7);
+      const minObsDist = Math.min(...obsDists);
+      const nadir = obs[7];
+      const zenith = obs[8];
       
       trainObs.push(obs);
       
-      if (reward > 0.01) {
-        // Good outcome - keep the correction that worked
+      if (reward > 0.1) {
+        // Good outcome - reinforce the correction
         trainTargets.push(correction);
-      } else if (reward < -0.01) {
-        // Bad outcome - target zero correction (trust base action)
+      } else if (reward < -0.1 || minObsDist < 0.15 || nadir < 0.1 || zenith < 0.1) {
+        // Bad outcome OR very close to obstacle
+        // Target = zero correction (trust base action)
+        // This teaches: when in doubt, go straight to target
         trainTargets.push([0, 0, 0]);
       } else {
-        // Neutral - small correction towards zero
+        // Neutral - small decay towards zero
         trainTargets.push(correction.map(c => c * 0.5));
       }
     }
@@ -145,8 +155,8 @@ export class TrainingManager {
     // Debug logging
     if (this.trainingStep % 10 === 0) {
       const avgReward = rewards.reduce((a, b) => a + b, 0) / rewards.length;
-      const posCount = rewards.filter(r => r > 0.01).length;
-      const negCount = rewards.filter(r => r < -0.01).length;
+      const posCount = rewards.filter(r => r > 0.1).length;
+      const negCount = rewards.filter(r => r < -0.1).length;
       console.log(`[TRAIN] step=${this.trainingStep} avgR=${avgReward.toFixed(3)} pos=${posCount} neg=${negCount}`);
     }
     
