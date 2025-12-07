@@ -123,9 +123,10 @@ export class RLEnvironment {
       this.generateCurriculumTarget();
     }
     
-    // Make drone face the target
+    // Get target (no longer rotating drone to face it - using world coords)
     const target = this.targetManager.getPosition();
-    this.drone.lookAt(target.x, target.z);
+    // Reset yaw to 0 (facing -Z direction)
+    this.drone.setYaw(0);
     this.drone.updateMesh();
     
     // Reset episode state
@@ -232,25 +233,15 @@ export class RLEnvironment {
   }
   
   /**
-   * Get current observation (all in LOCAL coordinates)
+   * Get current observation - uses ObservationBuilder (single source of truth)
    */
   getObservation() {
     const state = this.drone.getState();
-    const closestObstaclesFlat = this.lidar.getClosestObstaclesFlat();
-    const nadirDist = this.lidar.getNadirDistance();
-    const zenithDist = this.lidar.getZenithDistance();
-    const targetDir = this.getTargetDirection();
-    const distToTarget = this.getDistanceToTarget();
-    const canSee = this.canSeeTarget();
+    const target = this.targetManager.getPosition();
     
-    return this.observationBuilder.build(
-      state,
-      closestObstaclesFlat,
-      nadirDist,
-      zenithDist,
-      targetDir,
-      distToTarget,
-      canSee
+    return this.observationBuilder.buildFromPositions(
+      state.x, state.y, state.z,
+      target.x, target.y, target.z
     );
   }
   

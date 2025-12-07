@@ -27,14 +27,14 @@ export class CurriculumManager {
     this.fixedTargetRadius = 1.0;
     
     // Tracking for level progression
-    // Need successes on DIFFERENT targets (not consecutive, but unique targets)
-    this.uniqueSuccessfulTargets = 0;
-    this.successesNeededToAdvance = 20; // Need 20 different successful targets
+    // Need CONSECUTIVE successes to prove reliable learning
+    this.consecutiveSuccesses = 0;
+    this.successesNeededToAdvance = 50; // Need 50 CONSECUTIVE successes
     
     // Track current target (don't regenerate on failure)
     this.currentTargetPosition = null;
     this.attemptsOnCurrentTarget = 0;
-    this.maxAttemptsPerTarget = 50; // Allow MANY retries on same target
+    this.maxAttemptsPerTarget = 100; // Allow MANY retries on same target
   }
   
   /**
@@ -68,27 +68,28 @@ export class CurriculumManager {
     const oldLevel = this.level;
     
     if (success) {
-      // Success on this target - count it and generate new target
-      this.uniqueSuccessfulTargets++;
+      // Success - increment consecutive counter
+      this.consecutiveSuccesses++;
       this.attemptsOnCurrentTarget = 0;
       this.currentTargetPosition = null; // Generate new target on success
       
-      // Advance level after enough unique successful targets
-      if (this.uniqueSuccessfulTargets >= this.successesNeededToAdvance) {
+      // Advance level after enough CONSECUTIVE successes
+      if (this.consecutiveSuccesses >= this.successesNeededToAdvance) {
         if (this.level < this.stages.length - 1) {
           this.level++;
-          this.uniqueSuccessfulTargets = 0; // Reset counter for new level
+          this.consecutiveSuccesses = 0; // Reset counter for new level
+          console.log(`🎉 LEVEL UP! Now at level ${this.level}: ${this.getCurrentStage().name}`);
         }
       }
     } else {
-      // Failure - keep trying same target
+      // Failure - reset consecutive counter!
+      this.consecutiveSuccesses = 0;
       this.attemptsOnCurrentTarget++;
       
-      // After MANY failures on same target, generate new one (but don't count as success)
+      // After MANY failures on same target, generate new one
       if (this.attemptsOnCurrentTarget >= this.maxAttemptsPerTarget) {
         this.currentTargetPosition = null;
         this.attemptsOnCurrentTarget = 0;
-        // Don't reset uniqueSuccessfulTargets - keep progress
       }
     }
     
@@ -125,7 +126,7 @@ export class CurriculumManager {
    */
   reset() {
     this.level = 0;
-    this.uniqueSuccessfulTargets = 0;
+    this.consecutiveSuccesses = 0;
     this.currentTargetPosition = null;
     this.attemptsOnCurrentTarget = 0;
   }
@@ -135,7 +136,7 @@ export class CurriculumManager {
    */
   setLevel(level) {
     this.level = Math.max(0, Math.min(level, this.stages.length - 1));
-    this.uniqueSuccessfulTargets = 0;
+    this.consecutiveSuccesses = 0;
   }
   
   /**
@@ -152,7 +153,7 @@ export class CurriculumManager {
     return {
       level: this.level,
       stageName: this.getCurrentStage().name,
-      uniqueSuccesses: this.uniqueSuccessfulTargets,
+      consecutiveSuccesses: this.consecutiveSuccesses,
       successesNeeded: this.successesNeededToAdvance,
       attemptsOnTarget: this.attemptsOnCurrentTarget,
       maxAttempts: this.maxAttemptsPerTarget,

@@ -13,18 +13,18 @@ export class RewardCalculator {
   constructor() {
     this.config = {
       // Terminal rewards
-      targetReached: 10,
-      collision: -10,
+      targetReached: 100,
+      collision: -100,
       
       // Distance shaping
       distanceProgress: 1.0,
       
       // Proximity penalty - CRITICAL ZONE ONLY (< 1m)
-      proximityCriticalDist: 1.0, // Penalty starts at 1m
+      proximityCriticalDist: 0.5, // Penalty starts at 1m
       proximitySeverePenalty: -2.0, // Base penalty at 1m (scales up rapidly)
       
       // Time penalty
-      timePenalty: -0.01,
+      timePenalty: 0,
     };
   }
   
@@ -66,6 +66,12 @@ export class RewardCalculator {
     const progressReward = distanceDelta * this.config.distanceProgress;
     reward += progressReward;
     breakdown.progress = progressReward;
+    
+    // Debug: log reward every 500 steps
+    this.debugCounter = (this.debugCounter || 0) + 1;
+    if (this.debugCounter <= 10 || this.debugCounter % 500 === 0) {
+      console.log(`[REWARD] prev=${prevDistance.toFixed(2)} curr=${currentDistance.toFixed(2)} delta=${distanceDelta.toFixed(3)} reward=${progressReward.toFixed(3)}`);
+    }
     
     // 4. PROXIMITY PENALTY - CRITICAL ZONE ONLY (< 1m)
     // Find minimum distance across all sensors

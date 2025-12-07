@@ -65,12 +65,12 @@ export const SIMULATION = {
   RENDER_FPS: 60,         // Target render framerate
 };
 
-// Autopilot neural network - ADJUSTED for closest obstacles LiDAR
+// Autopilot neural network
 export const AUTOPILOT = {
-  // 4 closest obstacles * 3 (dirX, dirZ, dist) + nadir/zenith (2) + velocity (3) + target_dir (3) + dist (1) + can_see (1)
-  INPUT_SIZE: 4 * 3 + 2 + 3 + 3 + 1 + 1, // = 22
-  HIDDEN_LAYERS: [64, 32],  // Smaller network
-  OUTPUT_SIZE: 3,         // [thrust_x, thrust_y, thrust_z]
+  // Simple: just target direction (3)
+  INPUT_SIZE: 3,
+  HIDDEN_LAYERS: [64, 64],  // Larger network
+  OUTPUT_SIZE: 3,           // [thrustX, thrustY, thrustZ] = world axes
   LEARNING_RATE: 0.001,
   BATCH_SIZE: 64,
 };
@@ -130,7 +130,7 @@ export const RL_CONFIG = {
   // ===========================================
   // NEURAL NETWORK
   // ===========================================
-  HIDDEN_UNITS: [64, 32, 16],   // Smaller network (easier to train)
+  HIDDEN_UNITS: [64, 64],   // Larger network (3 inputs → 3 outputs)
   
   // ===========================================
   // TRAINING HYPERPARAMETERS

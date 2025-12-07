@@ -141,12 +141,11 @@ export class SceneManager {
       this.camera.position.set(targetX, CAMERA.BIRD_EYE_HEIGHT, targetZ);
       this.camera.lookAt(targetX, targetY, targetZ);
     } else {
-      const offsetX = Math.sin(targetYaw + Math.PI) * CAMERA.FOLLOW_DISTANCE;
-      const offsetZ = Math.cos(targetYaw + Math.PI) * CAMERA.FOLLOW_DISTANCE;
-      
-      const targetCamX = targetX + offsetX;
+      // SIMPLIFIED: Camera always behind drone (at +Z offset)
+      // Since forward is -Z, camera is at +Z to look from behind
+      const targetCamX = targetX;
       const targetCamY = targetY + CAMERA.FOLLOW_HEIGHT;
-      const targetCamZ = targetZ + offsetZ;
+      const targetCamZ = targetZ + CAMERA.FOLLOW_DISTANCE; // +Z = behind
       
       this.camera.position.x += (targetCamX - this.camera.position.x) * CAMERA.FOLLOW_SMOOTHING;
       this.camera.position.y += (targetCamY - this.camera.position.y) * CAMERA.FOLLOW_SMOOTHING;

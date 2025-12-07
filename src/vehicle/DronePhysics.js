@@ -129,13 +129,13 @@ export class DronePhysics {
       return { moved: false };
     }
     
-    // Convert LOCAL thrust to WORLD acceleration
-    const cosYaw = Math.cos(this.yaw);
-    const sinYaw = Math.sin(this.yaw);
-    
-    const worldAccelX = (this.thrustX * sinYaw + this.thrustY * cosYaw) * DRONE.MAX_ACCELERATION;
-    const worldAccelZ = (this.thrustX * cosYaw - this.thrustY * sinYaw) * DRONE.MAX_ACCELERATION;
-    const worldAccelY = this.thrustZ * DRONE.MAX_ACCELERATION;
+    // DEAD SIMPLE: thrust directly maps to world axes
+    // thrustX → world X acceleration
+    // thrustY → world Y acceleration (up/down)
+    // thrustZ → world Z acceleration
+    const worldAccelX = this.thrustX * DRONE.MAX_ACCELERATION;
+    const worldAccelY = this.thrustY * DRONE.MAX_ACCELERATION;
+    const worldAccelZ = this.thrustZ * DRONE.MAX_ACCELERATION;
     
     // Apply acceleration
     this.vx += worldAccelX * dt;

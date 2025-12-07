@@ -80,18 +80,24 @@ export class InputController {
   /**
    * Get current action from input state
    * @returns {number[]} [thrustX, thrustY, thrustZ]
+   * 
+   * SIMPLE: thrust = world axis acceleration
+   * Camera is at +Z looking at -Z, so:
+   * - W (forward) = -Z
+   * - A (left) = -X
+   * - Q (up) = +Y
    */
   getAction() {
-    let thrustX = 0;
-    let thrustY = 0;
-    let thrustZ = 0;
+    let thrustX = 0;  // World X axis (left/right)
+    let thrustY = 0;  // World Y axis (up/down)
+    let thrustZ = 0;  // World Z axis (forward/back)
     
-    if (this.input.forward) thrustX = 0.8;
-    if (this.input.backward) thrustX = -0.8;
-    if (this.input.left) thrustY = 0.8;
-    if (this.input.right) thrustY = -0.8;
-    if (this.input.up) thrustZ = 0.8;
-    if (this.input.down) thrustZ = -0.5;
+    if (this.input.forward) thrustZ = -0.8;  // W = forward = -Z
+    if (this.input.backward) thrustZ = 0.8;  // S = backward = +Z
+    if (this.input.left) thrustX = -0.8;     // A = left = -X
+    if (this.input.right) thrustX = 0.8;     // D = right = +X
+    if (this.input.up) thrustY = 0.8;        // Q = up = +Y
+    if (this.input.down) thrustY = -0.5;     // Z = down = -Y
     
     return [thrustX, thrustY, thrustZ];
   }

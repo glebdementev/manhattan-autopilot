@@ -33,6 +33,9 @@ export class RLAgent {
     // Episode counter
     this.episodeCount = 0;
     
+    // Debug counter
+    this.debugCounter = 0;
+    
     console.log('RL Agent initialized (pure RL, no heuristics)');
     console.log(`Observation size: ${this.observationSize}, Action size: ${this.actionSize}`);
   }
@@ -45,6 +48,15 @@ export class RLAgent {
   selectAction(observation, training = false) {
     // Get neural network action
     const action = this.policyNetwork.predict(observation);
+    
+    // Debug logging
+    this.debugCounter++;
+    if (this.debugCounter <= 5 || this.debugCounter % 100 === 0) {
+      console.log(`[ACTION #${this.debugCounter}]`,
+        `obs=[${observation.map(v => v.toFixed(2)).join(', ')}]`,
+        `→ action=[${action.map(v => v.toFixed(2)).join(', ')}]`
+      );
+    }
     
     if (training) {
       return this.explorationManager.addNoise(action, true);

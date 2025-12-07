@@ -262,41 +262,25 @@ export class ForestGenerator {
   }
 
   /**
-   * Generate a random target position that has at least 0.5x0.5 clearance
-   * Targets can be positioned under canopies as long as there's enough space
+   * Generate a target position - STRAIGHT AHEAD, NO ROTATION
+   * Target is at SAME X as drone, just different Z (forward)
    */
-  generateTargetPosition(currentX, currentZ, minDist = 25, maxDist = 60) {
+  generateTargetPosition(currentX, currentZ, minDist = 3, maxDist = 10) {
     let seed = Date.now();
     const random = () => {
       seed = (seed * 16807) % 2147483647;
       return (seed - 1) / 2147483646;
     };
     
-    const halfSize = FOREST.SIZE / 2 - 10;
-    const targetClearance = 0.25; // 0.5x0.5 box = 0.25 half-width
+    // Target at SAME X, just forward in Z
+    const x = currentX; // SAME X - no angle!
+    const dist = minDist + random() * (maxDist - minDist);
+    const z = currentZ - dist; // Forward is -Z
     
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const angle = random() * Math.PI * 2;
-      const dist = minDist + random() * (maxDist - minDist);
-      
-      let x = currentX + Math.cos(angle) * dist;
-      let z = currentZ + Math.sin(angle) * dist;
-      
-      x = Math.max(-halfSize, Math.min(halfSize, x));
-      z = Math.max(-halfSize, Math.min(halfSize, z));
-      
-      const groundY = this.getTerrainHeight(x, z);
-      const y = groundY + 1.8; // Fixed height at 1.8m above ground
-      
-      // Check if position has 0.5x0.5 clearance (can be under canopies)
-      if (this.isTargetPositionClear(x, y, z, targetClearance)) {
-        return { x, y, z };
-      }
-    }
+    const groundY = this.getTerrainHeight(x, z);
+    const y = groundY + 1.5; // Same height as drone spawn
     
-    // Fallback: find a clear position near the origin
-    const groundY = this.getTerrainHeight(0, 0);
-    return { x: 0, y: groundY + 1.8, z: 0 };
+    return { x, y, z };
   }
   
   /**
