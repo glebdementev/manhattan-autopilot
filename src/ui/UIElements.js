@@ -30,12 +30,26 @@ export function createInfoPanelHTML() {
         <h3>Pilot Mode</h3>
         <div class="radio-group">
           <label>
-            <input type="radio" name="driver-mode" value="rl" checked>
-            🤖 RL Agent
+            <input type="radio" name="driver-mode" value="rl">
+            🤖 RL Agent Only
           </label>
           <label>
-            <input type="radio" name="driver-mode" value="manual">
-            🎮 Manual (WASD/QE)
+            <input type="radio" name="driver-mode" value="manual" checked>
+            🎮 Manual + Ghost RL
+          </label>
+        </div>
+      </div>
+      
+      <div class="section" id="camera-section">
+        <h3>📷 Camera Follow</h3>
+        <div class="radio-group">
+          <label>
+            <input type="radio" name="camera-target" value="manual" checked>
+            🎮 Manual Drone
+          </label>
+          <label>
+            <input type="radio" name="camera-target" value="ghost">
+            👻 Ghost RL
           </label>
         </div>
       </div>
@@ -72,8 +86,8 @@ export function createInfoPanelHTML() {
         
         <div class="control-group">
           <label class="checkbox-label">
-            <input type="checkbox" id="fast-mode-toggle">
-            Fast Training (10x)
+            <input type="checkbox" id="learn-from-manual-toggle" checked>
+            Learn from Manual
           </label>
         </div>
         
@@ -133,7 +147,7 @@ export function createInfoPanelHTML() {
       <p><strong>Manual Controls:</strong></p>
       <p><strong>W/S</strong> - Forward/Back</p>
       <p><strong>A/D</strong> - Left/Right</p>
-      <p><strong>Q/E</strong> - Up/Down</p>
+      <p><strong>Shift/Ctrl</strong> - Up/Down</p>
       <p><strong>R</strong> - New target</p>
     </div>
     
@@ -182,7 +196,7 @@ export function createUIContainer() {
     
     // Toggles
     trainingToggle: document.getElementById('training-toggle'),
-    fastModeToggle: document.getElementById('fast-mode-toggle'),
+    learnFromManualToggle: document.getElementById('learn-from-manual-toggle'),
     lidarToggle: document.getElementById('lidar-toggle'),
     
     // Reward indicator

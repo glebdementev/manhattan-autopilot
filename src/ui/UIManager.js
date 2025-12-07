@@ -102,10 +102,17 @@ export class UIManager extends EventEmitter {
       }
     });
     
-    // Radio buttons
+    // Radio buttons - driver mode
     document.querySelectorAll('input[name="driver-mode"]').forEach(radio => {
       radio.addEventListener('change', (e) => {
         this.emit('driverModeChange', e.target.value);
+      });
+    });
+    
+    // Radio buttons - camera target
+    document.querySelectorAll('input[name="camera-target"]').forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        this.emit('cameraTargetChange', e.target.value);
       });
     });
     
@@ -114,8 +121,8 @@ export class UIManager extends EventEmitter {
       this.emit('trainingToggle', e.target.checked);
     });
     
-    this.elements.fastModeToggle.addEventListener('change', (e) => {
-      this.emit('fastModeToggle', e.target.checked);
+    this.elements.learnFromManualToggle.addEventListener('change', (e) => {
+      this.emit('learnFromManualToggle', e.target.checked);
     });
     
     this.elements.lidarToggle.addEventListener('change', (e) => {
@@ -202,6 +209,37 @@ export class UIManager extends EventEmitter {
     const radio = document.querySelector('input[name="driver-mode"]:checked');
     return radio ? radio.value : 'rl';
   }
+  
+  /**
+   * Get current camera target
+   * @returns {string} Current target ('manual' or 'ghost')
+   */
+  getCameraTarget() {
+    const radio = document.querySelector('input[name="camera-target"]:checked');
+    return radio ? radio.value : 'manual';
+  }
+  
+  /**
+   * Set camera target programmatically
+   * @param {string} target - Target to set ('manual' or 'ghost')
+   */
+  setCameraTarget(target) {
+    const radio = document.querySelector(`input[name="camera-target"][value="${target}"]`);
+    if (radio) {
+      radio.checked = true;
+    }
+  }
+  
+  /**
+   * Show/hide camera section based on mode
+   * @param {boolean} show - Whether to show the section
+   */
+  setCameraSectionVisible(show) {
+    const section = document.getElementById('camera-section');
+    if (section) {
+      section.style.display = show ? 'block' : 'none';
+    }
+  }
 
   /**
    * Check if training is enabled
@@ -211,11 +249,4 @@ export class UIManager extends EventEmitter {
     return this.elements.trainingToggle.checked;
   }
 
-  /**
-   * Check if fast mode is enabled
-   * @returns {boolean}
-   */
-  isFastModeEnabled() {
-    return this.elements.fastModeToggle.checked;
-  }
 }

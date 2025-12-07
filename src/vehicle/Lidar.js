@@ -55,6 +55,36 @@ export class Lidar {
     this._direction = new THREE.Vector3();
     this._origin = new THREE.Vector3();
     this._endPoint = new THREE.Vector3();
+    
+    // Target line visualization
+    this.targetLine = null;
+    this.targetLineMaterial = null;
+    this.targetPosition = null;
+    this.targetVisible = false;
+    this.setupTargetLine();
+  }
+  
+  /**
+   * Setup target direction line visualization
+   */
+  setupTargetLine() {
+    // Create line geometry with 2 points (drone to target)
+    const positions = new Float32Array(6); // 2 vertices * 3 components
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+    // Material with color that changes based on visibility
+    this.targetLineMaterial = new THREE.LineBasicMaterial({
+      color: 0x00ff00, // Green = visible
+      linewidth: 2,
+      transparent: true,
+      opacity: 0.8,
+    });
+    
+    this.targetLine = new THREE.Line(geometry, this.targetLineMaterial);
+    this.targetLine.name = 'target_line';
+    this.targetLine.visible = false; // Only show when lidar is on
+    this.visualGroup.add(this.targetLine);
   }
 
   /**
@@ -295,9 +325,62 @@ export class Lidar {
     if (shouldVisualize) {
       this.rayLines.geometry.attributes.position.needsUpdate = true;
       this.hitSpheres.instanceMatrix.needsUpdate = true;
+      
+      // Update target line
+      this.updateTargetLine(droneX, droneY, droneZ);
     }
     
     return this.distances;
+  }
+  
+  /**
+   * Update target direction line
+   */
+  updateTargetLine(droneX, droneY, droneZ) {
+    if (!this.targetPosition || !this.targetLine) return;
+    
+    const positions = this.targetLine.geometry.attributes.position.array;
+    
+    // Start at drone position
+    positions[0] = droneX;
+    positions[1] = droneY;
+    positions[2] = droneZ;
+    
+    // End at target position
+    positions[3] = this.targetPosition.x;
+    positions[4] = this.targetPosition.y;
+    positions[5] = this.targetPosition.z;
+    
+    this.targetLine.geometry.attributes.position.needsUpdate = true;
+    
+    // Update color based on visibility
+    // Green = can see target (path is clear)
+    // Red = cannot see target (obstacles in way)
+    if (this.targetVisible) {
+      this.targetLineMaterial.color.setHex(0x00ff88); // Bright green
+      this.targetLineMaterial.opacity = 0.9;
+    } else {
+      this.targetLineMaterial.color.setHex(0xff4444); // Red
+      this.targetLineMaterial.opacity = 0.6;
+    }
+  }
+  
+  /**
+   * Set target position for visualization
+   * @param {number} x - Target X position
+   * @param {number} y - Target Y position
+   * @param {number} z - Target Z position
+   */
+  setTargetPosition(x, y, z) {
+    this.targetPosition = { x, y, z };
+  }
+  
+  /**
+   * Set whether target is visible (for line color)
+   * @param {boolean} visible - Whether target is visible
+   */
+  setTargetVisible(visible) {
+    this.targetVisible = visible;
   }
 
   /**
@@ -387,6 +470,11 @@ export class Lidar {
   setVisualizationEnabled(enabled) {
     this.visualizationEnabled = enabled;
     this.visualGroup.visible = enabled;
+    
+    // Show/hide target line with lidar
+    if (this.targetLine) {
+      this.targetLine.visible = enabled;
+    }
     
     // Force an immediate scan update if enabling
     if (enabled) {

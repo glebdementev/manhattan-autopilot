@@ -182,11 +182,11 @@ export const RL_CONFIG = {
   ACTION_NOISE: 0.3,            // Noise added to actions during exploration
   
   // ===========================================
-  // HEURISTIC BLENDING (for faster initial learning)
+  // HEURISTIC BLENDING (disabled - user teaches from scratch)
   // ===========================================
-  INITIAL_HEURISTIC_WEIGHT: 0.7,  // Start with 70% heuristic, 30% NN
-  MIN_HEURISTIC_WEIGHT: 0.1,      // Minimum 10% heuristic for safety
-  HEURISTIC_DECAY: 0.9998,        // Decay per training step
+  INITIAL_HEURISTIC_WEIGHT: 0.0,  // Start with 0% heuristic - RL must learn from user demonstrations
+  MIN_HEURISTIC_WEIGHT: 0.0,      // No heuristic safety net
+  HEURISTIC_DECAY: 1.0,           // No decay needed
   
   // ===========================================
   // TRAINING CONTROL

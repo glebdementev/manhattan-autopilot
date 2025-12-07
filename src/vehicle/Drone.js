@@ -3,9 +3,9 @@
  * 
  * Physics model:
  * - Controls are in LOCAL coordinates (relative to drone facing)
- * - thrustZ > 0 = forward (direction drone is facing)
- * - thrustX > 0 = strafe right
- * - thrustY > 0 = up
+ * - thrustX > 0 = forward (direction drone is facing)
+ * - thrustY > 0 = strafe right
+ * - thrustZ > 0 = up
  * - Velocity has inertia (drag-based deceleration)
  * 
  * Uses CollisionSystem for robust collision detection:
@@ -34,9 +34,9 @@ export class Drone {
     
     // Control inputs in LOCAL coordinates (-1 to 1)
     // These are relative to drone's facing direction
-    this.thrustX = 0;  // Strafe: negative=left, positive=right
-    this.thrustY = 0;  // Vertical: negative=down, positive=up
-    this.thrustZ = 0;  // Forward/Back: negative=back, positive=forward
+    this.thrustX = 0;  // Forward/Back: negative=back, positive=forward
+    this.thrustY = 0;  // Strafe: negative=left, positive=right
+    this.thrustZ = 0;  // Vertical: negative=down, positive=up
     
     // Three.js mesh
     this.mesh = this.createMesh();
@@ -161,9 +161,9 @@ export class Drone {
    * Update drone physics with swept collision detection
    * 
    * Controls are in LOCAL coordinates:
-   * - thrustZ > 0 pushes drone forward (in direction of yaw)
-   * - thrustX > 0 pushes drone right (perpendicular to yaw)
-   * - thrustY > 0 pushes drone up
+   * - thrustX > 0 pushes drone forward (in direction of yaw)
+   * - thrustY > 0 pushes drone right (perpendicular to yaw)
+   * - thrustZ > 0 pushes drone up
    * 
    * Physics has inertia - velocity persists and decays with drag
    */
@@ -197,17 +197,17 @@ export class Drone {
     }
     
     // Convert LOCAL thrust to WORLD acceleration
-    // Local Z (forward) maps to world based on yaw
-    // Local X (right) maps to world based on yaw
+    // Local X (forward) maps to world based on yaw
+    // Local Y (right) maps to world based on yaw
     const cosYaw = Math.cos(this.yaw);
     const sinYaw = Math.sin(this.yaw);
     
     // Local to world transformation for thrust
-    // Forward (local +Z) -> world: (sin(yaw), 0, cos(yaw))
-    // Right (local +X) -> world: (cos(yaw), 0, -sin(yaw))
-    const worldAccelX = (this.thrustZ * sinYaw + this.thrustX * cosYaw) * DRONE.MAX_ACCELERATION;
-    const worldAccelZ = (this.thrustZ * cosYaw - this.thrustX * sinYaw) * DRONE.MAX_ACCELERATION;
-    const worldAccelY = this.thrustY * DRONE.MAX_ACCELERATION;
+    // Forward (local +X) -> world: (sin(yaw), 0, cos(yaw))
+    // Right (local +Y) -> world: (cos(yaw), 0, -sin(yaw))
+    const worldAccelX = (this.thrustX * sinYaw + this.thrustY * cosYaw) * DRONE.MAX_ACCELERATION;
+    const worldAccelZ = (this.thrustX * cosYaw - this.thrustY * sinYaw) * DRONE.MAX_ACCELERATION;
+    const worldAccelY = this.thrustZ * DRONE.MAX_ACCELERATION;
     
     // Apply acceleration to velocity (with inertia)
     this.vx += worldAccelX * dt;
@@ -396,9 +396,9 @@ export class Drone {
       vy: this.vy,
       vz: this.vz,
       // Local velocity (relative to drone facing)
-      localVx: localVel.x,  // Right/left speed
-      localVy: localVel.y,  // Up/down speed
-      localVz: localVel.z,  // Forward/back speed
+      localVx: localVel.x,  // Forward/back speed
+      localVy: localVel.y,  // Right/left speed
+      localVz: localVel.z,  // Up/down speed
       // Speed
       speed: speed,
       normalizedSpeed: speed / DRONE.MAX_SPEED,
@@ -413,17 +413,17 @@ export class Drone {
   
   /**
    * Get velocity in LOCAL coordinates (relative to drone facing)
-   * localVz > 0 means moving forward
-   * localVx > 0 means moving right
+   * localVx > 0 means moving forward
+   * localVy > 0 means moving right
    */
   getLocalVelocity() {
     const cos = Math.cos(-this.yaw);
     const sin = Math.sin(-this.yaw);
     
     return {
-      x: this.vx * cos - this.vz * sin,  // Right/left
-      y: this.vy,                          // Up/down (same in both frames)
-      z: this.vx * sin + this.vz * cos,   // Forward/back
+      x: this.vx * sin + this.vz * cos,   // Forward/back
+      y: this.vx * cos - this.vz * sin,   // Right/left
+      z: this.vy,                          // Up/down (same in both frames)
     };
   }
 

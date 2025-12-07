@@ -36,24 +36,25 @@ export class RewardCalculator {
   constructor() {
     // Store reward config for easy access
     // REBALANCED REWARDS: Prioritizing target seeking and obstacle avoidance
+    // Key insight: rewards must be NET POSITIVE when doing the right thing!
     this.config = {
       // Goal rewards (Primary Goal #1: Move to target)
       targetReached: 500,           // Massive bonus for success
-      distanceProgress: 10.0,       // Strong reward for getting closer
-      distanceRegress: 15.0,        // Strong penalty for moving away
+      distanceProgress: 15.0,       // Strong reward for getting closer (increased)
+      distanceRegress: 20.0,        // Strong penalty for moving away
       
       // Collision/safety penalties (Primary Goal #2: Safety)
       collision: -1000,             // Terminal penalty
-      obstacleProximity: -5.0,      // Strong "force field"
-      obstacleVeryClose: -30.0,     // Extreme proximity penalty
+      obstacleProximity: -3.0,      // Moderate "force field" (reduced from -5)
+      obstacleVeryClose: -15.0,     // Proximity penalty (reduced from -30)
       obstacleDangerDistance: RL_CONFIG.OBSTACLE_DANGER_DISTANCE,
       obstacleCloseDistance: RL_CONFIG.OBSTACLE_CLOSE_DISTANCE,
       obstacleCriticalDistance: RL_CONFIG.OBSTACLE_CRITICAL_DISTANCE,
       
       // Secondary/Helper rewards
-      velocityTowardsTarget: 5.0,   // Guidance to help find target
-      stagnation: -5.0,             // Prevent getting stuck/hovering
-      timePenalty: -0.5,            // Urgency
+      velocityTowardsTarget: 3.0,   // Guidance to help find target
+      stagnation: -3.0,             // Prevent getting stuck/hovering (reduced)
+      timePenalty: -0.05,           // Small urgency (reduced from -0.5!)
       
       // Disabled/Secondary rewards (per user request)
       highSpeed: 0,
@@ -77,6 +78,7 @@ export class RewardCalculator {
    * @param {boolean} params.hadCollision - Whether collision occurred
    * @param {number} params.minLidarDist - Minimum lidar distance (obstacle proximity)
    * @param {Array<number>} params.lidarDistances - All lidar ray distances for comprehensive proximity check
+   * @param {number} params.numGridRays - Number of horizontal grid rays (excludes nadir/zenith)
    * @param {number} params.nadirDistance - Distance to ground (nadir lidar ray)
    * @param {Object} params.droneState - Drone state { x, y, z, vx, vy, vz }
    * @param {Object} params.targetDirWorld - Target direction in world coords { x, y, z }
@@ -91,6 +93,7 @@ export class RewardCalculator {
       hadCollision,
       minLidarDist,
       lidarDistances,
+      numGridRays,
       nadirDistance,
       droneState,
       targetDirWorld,
@@ -113,8 +116,12 @@ export class RewardCalculator {
     // =====================================================
     // 2. OBSTACLE PROXIMITY PENALTY (CRITICAL - must HATE being close)
     // =====================================================
-    // Use ALL lidar rays to create comprehensive "force field" of fear
-    const proximityPenalty = this.calculateProximityPenalty(lidarDistances, minLidarDist);
+    // Use HORIZONTAL lidar rays only (exclude nadir/zenith which measure altitude)
+    // numGridRays tells us how many horizontal rays there are
+    const horizontalRays = numGridRays && lidarDistances 
+      ? lidarDistances.slice(0, numGridRays) 
+      : lidarDistances;
+    const proximityPenalty = this.calculateProximityPenalty(horizontalRays, minLidarDist);
     if (proximityPenalty < 0) {
       reward += proximityPenalty;
       breakdown.proximity = proximityPenalty;

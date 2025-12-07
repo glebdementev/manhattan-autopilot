@@ -9,6 +9,7 @@ import { ForestGenerator } from './forest/ForestGenerator.js';
 
 // Vehicle
 import { Drone } from './vehicle/Drone.js';
+import { GhostDrone } from './vehicle/GhostDrone.js';
 import { Lidar } from './vehicle/Lidar.js';
 
 // Reinforcement Learning
@@ -25,20 +26,22 @@ class Simulation {
     this.sceneManager = null;
     this.forestGenerator = null;
     this.drone = null;
+    this.ghostDrone = null; // Ghost RL drone for visualization
     this.lidar = null;
     this.rlEnvironment = null;
     this.rlAgent = null;
     this.ui = null;
     
     // State
-    this.driverMode = 'rl'; // 'rl', 'manual'
+    this.driverMode = 'manual'; // 'rl', 'manual' - default to manual so user teaches the RL
+    this.cameraTarget = 'manual'; // 'manual', 'ghost' - which drone camera follows
     this.isRunning = false;
     this.lastTime = 0;
     this.currentSeed = 42;
     
     // Training state
     this.trainingEnabled = true;
-    this.fastMode = false;
+    this.learnFromManual = true; // Enable by default so RL learns from user demonstrations
     this.stepsSinceLastTrain = 0;
     this.episodesSinceSceneChange = 0;
     
@@ -83,6 +86,12 @@ class Simulation {
     this.lidar = new Lidar(this.drone);
     this.sceneManager.add(this.lidar.getVisualGroup());
     
+    // Create Ghost Drone (shows what RL would do)
+    console.log('Creating ghost drone...');
+    this.ghostDrone = new GhostDrone();
+    this.ghostDrone.setCollisionChecker(this.forestGenerator);
+    this.sceneManager.add(this.ghostDrone.getMesh());
+    
     // Create RL Environment
     console.log('Creating RL Environment...');
     this.rlEnvironment = new RLEnvironment(
@@ -109,6 +118,9 @@ class Simulation {
     
     // Reset environment for first episode
     this.currentObservation = this.rlEnvironment.reset();
+    
+    // Sync ghost drone to main drone position after reset
+    this.ghostDrone.syncFrom(this.drone);
     
     // Start simulation
     this.isRunning = true;
@@ -155,6 +167,11 @@ class Simulation {
     if (this.drone) {
       this.drone.setCollisionChecker(this.forestGenerator);
     }
+    
+    // Update ghost drone collision checker
+    if (this.ghostDrone) {
+      this.ghostDrone.setCollisionChecker(this.forestGenerator);
+    }
   }
 
   /**
@@ -167,7 +184,20 @@ class Simulation {
     this.ui.on('driverModeChange', (mode) => {
       this.driverMode = mode;
       this.drone.setMode(mode === 'manual' ? 'manual' : 'autopilot');
+      // Show/hide ghost drone and camera section based on mode
+      this.ghostDrone.setVisible(mode === 'manual');
+      this.ui.setCameraSectionVisible(mode === 'manual');
+      // Reset camera to manual drone when switching to RL mode
+      if (mode === 'rl') {
+        this.cameraTarget = 'manual';
+        this.ui.setCameraTarget('manual');
+      }
       console.log(`Pilot mode: ${mode}`);
+    });
+    
+    this.ui.on('cameraTargetChange', (target) => {
+      this.cameraTarget = target;
+      console.log(`Camera following: ${target}`);
     });
     
     this.ui.on('trainingToggle', (enabled) => {
@@ -175,9 +205,9 @@ class Simulation {
       console.log(`Training ${enabled ? 'enabled' : 'disabled'}`);
     });
     
-    this.ui.on('fastModeToggle', (enabled) => {
-      this.fastMode = enabled;
-      console.log(`Fast mode ${enabled ? 'enabled' : 'disabled'}`);
+    this.ui.on('learnFromManualToggle', (enabled) => {
+      this.learnFromManual = enabled;
+      console.log(`Learn from manual ${enabled ? 'enabled' : 'disabled'}`);
     });
     
     this.ui.on('lidarToggle', (enabled) => {
@@ -192,8 +222,13 @@ class Simulation {
     this.ui.on('keydown', (key) => this.handleKeyDown(key));
     this.ui.on('keyup', (key) => this.handleKeyUp(key));
     
-    // Set initial drone color
-    this.drone.setMode('autopilot');
+    // Set initial drone color to match default manual mode
+    this.drone.setMode('manual');
+    
+    // Ghost drone is visible by default (manual mode)
+    this.ghostDrone.setVisible(true);
+    // Camera section is visible by default (manual mode)
+    this.ui.setCameraSectionVisible(true);
   }
 
   /**
@@ -203,6 +238,10 @@ class Simulation {
     if (this.isRegenerating) return;
     
     this.currentObservation = this.rlEnvironment.reset();
+    
+    // Sync ghost drone to main drone position
+    this.ghostDrone.syncFrom(this.drone);
+    
     console.log('Episode reset');
   }
 
@@ -268,8 +307,12 @@ class Simulation {
       
       // Reset for new episode
       this.currentObservation = this.rlEnvironment.reset();
+      
+      // Sync ghost drone
+      this.ghostDrone.syncFrom(this.drone);
+      
       this.isRegenerating = false;
-    }, this.fastMode ? 100 : 600);
+    }, 600);
   }
 
   /**
@@ -324,10 +367,10 @@ class Simulation {
       case 'd': case 'arrowright':
         this.manualInput.right = true;
         break;
-      case 'q':
+      case 'shift':
         this.manualInput.up = true;
         break;
-      case 'e':
+      case 'control':
         this.manualInput.down = true;
         break;
       case 'r':
@@ -353,36 +396,48 @@ class Simulation {
       case 'd': case 'arrowright':
         this.manualInput.right = false;
         break;
-      case 'q':
+      case 'shift':
         this.manualInput.up = false;
         break;
-      case 'e':
+      case 'control':
         this.manualInput.down = false;
         break;
     }
   }
 
   /**
+   * Get manual control action
+   */
+  getManualAction() {
+    let thrustX = 0;
+    let thrustY = 0;
+    let thrustZ = 0;
+    
+    if (this.manualInput.forward) thrustX = 0.8;
+    if (this.manualInput.backward) thrustX = -0.8;
+    if (this.manualInput.left) thrustY = 0.8;
+    if (this.manualInput.right) thrustY = -0.8;
+    if (this.manualInput.up) thrustZ = 0.8;
+    if (this.manualInput.down) thrustZ = -0.5;
+    
+    return [thrustX, thrustY, thrustZ];
+  }
+  
+  /**
+   * Get RL agent action
+   */
+  getRLAction() {
+    return this.rlAgent.selectAction(this.currentObservation, this.trainingEnabled);
+  }
+  
+  /**
    * Get action from current mode
    */
   getAction() {
     if (this.driverMode === 'manual') {
-      // Manual control
-      let thrustX = 0;
-      let thrustY = 0;
-      let thrustZ = 0;
-      
-      if (this.manualInput.left) thrustX = -0.8;
-      if (this.manualInput.right) thrustX = 0.8;
-      if (this.manualInput.forward) thrustZ = 0.8;
-      if (this.manualInput.backward) thrustZ = -0.8;
-      if (this.manualInput.up) thrustY = 0.8;
-      if (this.manualInput.down) thrustY = -0.5;
-      
-      return [thrustX, thrustY, thrustZ];
+      return this.getManualAction();
     } else {
-      // RL Agent
-      return this.rlAgent.selectAction(this.currentObservation, this.trainingEnabled);
+      return this.getRLAction();
     }
   }
 
@@ -399,13 +454,8 @@ class Simulation {
     let deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1);
     this.lastTime = currentTime;
     
-    // Fast mode: run multiple steps
-    const stepsPerFrame = this.fastMode ? 10 : 1;
-    
-    for (let i = 0; i < stepsPerFrame; i++) {
-      if (!this.isRegenerating) {
-        this.update(deltaTime / stepsPerFrame);
-      }
+    if (!this.isRegenerating) {
+      this.update(deltaTime);
     }
     
     // Render (only once per frame)
@@ -416,14 +466,31 @@ class Simulation {
    * Update simulation state
    */
   update(dt) {
-    // Get action
+    // Get action for main drone
     const action = this.getAction();
+    
+    // In manual mode, also update ghost drone with RL action
+    if (this.driverMode === 'manual') {
+      // Keep ghost drone yaw synced with main drone (neither rotates)
+      this.ghostDrone.setYaw(this.drone.yaw);
+      
+      const rlAction = this.getRLAction();
+      this.ghostDrone.setControls(rlAction[0], rlAction[1], rlAction[2]);
+      this.ghostDrone.update(dt);
+      this.enforceGhostBounds();
+    }
     
     // Take step in environment
     const { observation, reward, done, info } = this.rlEnvironment.step(action, dt);
     
-    // Store experience for training (only in RL mode)
-    if (this.driverMode === 'rl' && this.trainingEnabled) {
+    // Store experience for training
+    // In RL mode: always store if training enabled
+    // In manual mode: store if learnFromManual is enabled (to teach from demonstrations)
+    const shouldStoreExperience = 
+      (this.driverMode === 'rl' && this.trainingEnabled) ||
+      (this.driverMode === 'manual' && this.learnFromManual);
+    
+    if (shouldStoreExperience) {
       this.rlAgent.storeExperience(
         this.currentObservation,
         action,
@@ -434,7 +501,7 @@ class Simulation {
       
       // Train periodically
       this.stepsSinceLastTrain++;
-      if (this.stepsSinceLastTrain >= RL_CONFIG.TRAIN_INTERVAL) {
+      if (this.stepsSinceLastTrain >= RL_CONFIG.TRAIN_INTERVAL && this.trainingEnabled) {
         this.rlAgent.train();
         this.stepsSinceLastTrain = 0;
       }
@@ -451,13 +518,16 @@ class Simulation {
     // Keep drone in bounds
     this.enforceBounds();
     
-    // Update camera
-    const state = this.drone.getState();
+    // Update camera based on selected target
+    const cameraState = this.cameraTarget === 'ghost' && this.driverMode === 'manual'
+      ? this.ghostDrone.getState()
+      : this.drone.getState();
+    
     this.sceneManager.followTarget(
-      state.x,
-      state.y,
-      state.z,
-      state.yaw,
+      cameraState.x,
+      cameraState.y,
+      cameraState.z,
+      cameraState.yaw,
       'chase'
     );
     
@@ -531,6 +601,37 @@ class Simulation {
     
     if (changed) {
       this.drone.setPosition(x, y, z);
+    }
+  }
+  
+  /**
+   * Keep ghost drone within forest bounds
+   */
+  enforceGhostBounds() {
+    const state = this.ghostDrone.getState();
+    const margin = 5;
+    const halfSize = FOREST.SIZE / 2 - margin;
+    
+    let x = state.x;
+    let y = state.y;
+    let z = state.z;
+    let changed = false;
+    
+    if (x < -halfSize) { x = -halfSize; changed = true; }
+    if (x > halfSize) { x = halfSize; changed = true; }
+    if (z < -halfSize) { z = -halfSize; changed = true; }
+    if (z > halfSize) { z = halfSize; changed = true; }
+    
+    const groundY = this.forestGenerator.getTerrainHeight(x, z);
+    const minY = groundY + 0.5;
+    
+    if (y < minY) { 
+      y = minY; 
+      changed = true; 
+    }
+    
+    if (changed) {
+      this.ghostDrone.setPosition(x, y, z);
     }
   }
 }

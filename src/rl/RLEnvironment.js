@@ -4,16 +4,16 @@
  * ALL observations and actions are in LOCAL coordinates (relative to drone facing)
  * 
  * Observation Space:
- * - Lidar distances (normalized 0-1): in LOCAL coords (forward = +Z)
- * - Velocity (normalized, LOCAL coords): vx (right), vy (up), vz (forward)
- * - Target direction (unit vector, LOCAL coords): dx (right), dy (up), dz (forward)
+ * - Lidar distances (normalized 0-1): in LOCAL coords (forward = +X)
+ * - Velocity (normalized, LOCAL coords): vx (forward), vy (right), vz (up)
+ * - Target direction (unit vector, LOCAL coords): dx (forward), dy (right), dz (up)
  * - Distance to target (normalized): 1 value
  * - Can see target: 1 value (binary)
  * 
  * Action Space (LOCAL coords):
- * - thrustX: strafe left (-1) / right (+1)
- * - thrustY: down (-1) / up (+1)
- * - thrustZ: backward (-1) / forward (+1)
+ * - thrustX: backward (-1) / forward (+1)
+ * - thrustY: strafe left (-1) / right (+1)
+ * - thrustZ: down (-1) / up (+1)
  */
 
 import { LIDAR } from '../config.js';
@@ -93,6 +93,10 @@ export class RLEnvironment {
     this.rewardCalculator.reset(); // Reset position history for stagnation detection
     this.previousDistanceToTarget = this.getDistanceToTarget();
     
+    // Update lidar target info for visualization (reuse target from above)
+    this.lidar.setTargetPosition(target.x, target.y, target.z);
+    this.lidar.setTargetVisible(this.canSeeTarget());
+    
     // Initial lidar scan (AFTER drone orientation is set)
     this.lidar.scan(this.raycastTargets);
     
@@ -135,6 +139,11 @@ export class RLEnvironment {
     
     // Update drone physics
     this.drone.update(dt);
+    
+    // Update lidar target info for visualization
+    const target = this.targetManager.getPosition();
+    this.lidar.setTargetPosition(target.x, target.y, target.z);
+    this.lidar.setTargetVisible(this.canSeeTarget());
     
     // Scan lidar
     this.lidar.scan(this.raycastTargets);
@@ -188,6 +197,7 @@ export class RLEnvironment {
     const currentDist = this.getDistanceToTarget();
     const minLidarDist = this.lidar.getMinDistance();
     const lidarDistances = this.lidar.getDistances(); // All lidar rays for comprehensive proximity check
+    const numGridRays = this.lidar.getNumGridRays(); // Horizontal rays only (excludes nadir/zenith)
     const nadirDistance = this.lidar.getNadirDistance();
     const targetDirWorld = this.getTargetDirectionWorld();
     const terrainHeight = this.forest.getTerrainHeight(state.x, state.z);
@@ -199,6 +209,7 @@ export class RLEnvironment {
       hadCollision: this.drone.hadCollision(),
       minLidarDist,
       lidarDistances,
+      numGridRays,
       nadirDistance,
       droneState: state,
       targetDirWorld,

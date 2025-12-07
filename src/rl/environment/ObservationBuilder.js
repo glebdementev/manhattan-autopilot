@@ -5,14 +5,14 @@
  * ALL values are in LOCAL coordinates (relative to drone facing direction)
  * 
  * Observation Space:
- * - Lidar distances (normalized 0-1): in local coords (forward = +Z)
- * - Velocity (normalized, LOCAL coords): vx (right), vy (up), vz (forward)
- * - Target direction (unit vector, LOCAL coords): dx (right), dy (up), dz (forward)
+ * - Lidar distances (normalized 0-1): in local coords (forward = +X)
+ * - Velocity (normalized, LOCAL coords): vx (forward), vy (right), vz (up)
+ * - Target direction (unit vector, LOCAL coords): dx (forward), dy (right), dz (up)
  * - Distance to target (normalized): 1 value
  * - Can see target: 1 value (binary)
  * 
  * This matches the LOCAL coordinate action space:
- * - thrustZ > 0 = forward, thrustX > 0 = right, thrustY > 0 = up
+ * - thrustX > 0 = forward, thrustY > 0 = right, thrustZ > 0 = up
  */
 
 import { LIDAR, DRONE, RL_CONFIG } from '../../config.js';
@@ -40,9 +40,9 @@ export class ObservationBuilder {
     
     // Normalize LOCAL velocity
     const normalizedVel = [
-      droneState.localVx / DRONE.MAX_SPEED,  // Right/left speed
-      droneState.localVy / DRONE.MAX_SPEED,  // Up/down speed
-      droneState.localVz / DRONE.MAX_SPEED,  // Forward/back speed
+      droneState.localVx / DRONE.MAX_SPEED,  // Forward/back speed
+      droneState.localVy / DRONE.MAX_SPEED,  // Right/left speed
+      droneState.localVz / DRONE.MAX_SPEED,  // Up/down speed
     ];
     
     // Normalized distance to target
@@ -55,9 +55,9 @@ export class ObservationBuilder {
     return [
       ...normalizedLidar,
       ...normalizedVel,
-      targetDir.x,  // Local X: target is right (+) or left (-)
-      targetDir.y,  // Local Y: target is above (+) or below (-)
-      targetDir.z,  // Local Z: target is forward (+) or behind (-)
+      targetDir.x,  // Local X: target is forward (+) or behind (-)
+      targetDir.y,  // Local Y: target is right (+) or left (-)
+      targetDir.z,  // Local Z: target is above (+) or below (-)
       normalizedDist,
       canSee,
     ];
