@@ -11,6 +11,7 @@ import { SplashScreens } from './SplashScreens.js';
 import { TrainingScreen } from './TrainingScreen.js';
 import { EventEmitter } from './EventEmitter.js';
 import * as StatsDisplay from './StatsDisplay.js';
+import * as RewardDisplay from './RewardDisplay.js';
 
 export class UIManager extends EventEmitter {
   constructor() {
@@ -144,6 +145,41 @@ export class UIManager extends EventEmitter {
     if (this.elements.ghostStatus) {
       this.elements.ghostStatus.textContent = status;
     }
+  }
+
+  /**
+   * Update reward display with current step breakdown
+   * @param {Object} breakdown - Reward breakdown from RewardCalculator
+   * @param {number} totalReward - Total reward for this step
+   */
+  updateRewardBreakdown(breakdown, totalReward) {
+    RewardDisplay.updateRewardBreakdown(this.elements, breakdown, totalReward);
+  }
+
+  /**
+   * Update episode cumulative stats in reward panel
+   * @param {number} episodeReward - Total reward for current episode
+   * @param {number} episodeSteps - Steps taken in current episode
+   */
+  updateEpisodeRewardStats(episodeReward, episodeSteps) {
+    RewardDisplay.updateEpisodeStats(this.elements, episodeReward, episodeSteps);
+  }
+
+  /**
+   * Update observation display - shows what the model sees
+   * @param {Object} obsData - Observation data object
+   */
+  updateObservationDisplay(obsData) {
+    RewardDisplay.updateObservationDisplay(this.elements, obsData);
+  }
+
+  /**
+   * Update model action display
+   * @param {Array} action - Action array [forward, right, up]
+   * @param {boolean} visible - Whether model is active
+   */
+  updateModelAction(action, visible) {
+    RewardDisplay.updateModelAction(this.elements, action, visible);
   }
 
   /**

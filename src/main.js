@@ -13,6 +13,7 @@ import {
   EpisodeManager,
   ComponentFactory
 } from './simulation/index.js';
+import { LIDAR } from './config.js';
 
 class Simulation {
   constructor() {
@@ -226,10 +227,12 @@ class Simulation {
     // - If a model is loaded, use RL agent (autopilot)
     // - Otherwise, use manual keyboard input
     let action;
+    let modelAction = null;
     if (this.trainingController.hasLoadedModel && rlAgent) {
       const currentObs = this.episodeManager.getObservation();
       if (currentObs) {
         action = rlAgent.selectAction(currentObs, false);
+        modelAction = action; // Store for UI display
       } else {
         // Fallback if observation not initialized yet
         action = this.inputController.getAction();
@@ -237,6 +240,9 @@ class Simulation {
     } else {
       action = this.inputController.getAction();
     }
+    
+    // Store model action for UI display
+    this.lastModelAction = modelAction;
     
     // Take step in environment
     t0 = performance.now();
@@ -259,6 +265,9 @@ class Simulation {
     if (done) {
       this.episodeManager.handleEnd(info, drone);
     }
+    
+    // Update reward display (every frame for responsiveness)
+    this.updateRewardDisplay(info);
     
     // Keep drones in bounds
     this.boundsEnforcer.enforce(drone);
@@ -297,7 +306,7 @@ class Simulation {
    * Update UI displays
    */
   updateUI() {
-    const { drone, rlEnvironment, ui } = this.components;
+    const { drone, rlEnvironment, ui, lidar } = this.components;
     
     const state = drone.getState();
     const distToTarget = rlEnvironment.getDistanceToTarget();
@@ -310,6 +319,74 @@ class Simulation {
       const ghostDist = this.ghostController.getDistanceToTarget();
       ui.updateGhostStats(ghostDist, 'Active');
     }
+    
+    // Update observation display (what the model sees)
+    this.updateObservationDisplay();
+    
+    // Update model action display if model is loaded
+    const hasModel = this.trainingController.hasLoadedModel;
+    ui.updateModelAction(this.lastModelAction, hasModel);
+  }
+  
+  /**
+   * Update observation display - shows exactly what the model sees
+   */
+  updateObservationDisplay() {
+    const { drone, rlEnvironment, ui, lidar } = this.components;
+    
+    const state = drone.getState();
+    const closestObstacles = lidar.getClosestObstacles();
+    const targetDir = rlEnvironment.getTargetDirection();
+    const distToTarget = rlEnvironment.getDistanceToTarget();
+    const canSeeTarget = rlEnvironment.canSeeTarget();
+    
+    const obsData = {
+      // Target info
+      distToTarget,
+      targetDir,
+      canSeeTarget,
+      
+      // 4 closest obstacles with direction and distance
+      closestObstacles,
+      maxRange: LIDAR.MAX_RANGE,
+      
+      // Vertical sensors
+      nadirDist: lidar.getNadirDistance(),
+      zenithDist: lidar.getZenithDistance(),
+      
+      // Local velocity
+      localVelocity: {
+        forward: state.localVx || 0,
+        right: state.localVy || 0,
+        up: state.localVz || 0,
+      },
+    };
+    
+    ui.updateObservationDisplay(obsData);
+  }
+  
+  /**
+   * Update reward display from step info
+   */
+  updateRewardDisplay(info) {
+    const { ui, rlEnvironment } = this.components;
+    
+    if (info && info.rewardBreakdown) {
+      // Calculate total from breakdown
+      let total = 0;
+      for (const key in info.rewardBreakdown) {
+        total += info.rewardBreakdown[key];
+      }
+      
+      ui.updateRewardBreakdown(info.rewardBreakdown, total);
+    }
+    
+    // Update episode stats
+    const stats = rlEnvironment.getStats();
+    ui.updateEpisodeRewardStats(
+      stats.currentEpisodeReward || 0,
+      stats.currentEpisodeSteps || 0
+    );
   }
 }
 

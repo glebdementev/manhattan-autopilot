@@ -17,7 +17,7 @@ export class RewardCalculator {
       collision: -10,
       
       // Distance shaping
-      distanceProgress: 0.1,
+      distanceProgress: 1.0,
       
       // Proximity penalty - CRITICAL ZONE ONLY (< 1m)
       proximityCriticalDist: 1.0, // Penalty starts at 1m

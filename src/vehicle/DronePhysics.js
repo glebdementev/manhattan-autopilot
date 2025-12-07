@@ -263,15 +263,22 @@ export class DronePhysics {
   
   /**
    * Get velocity in LOCAL coordinates (relative to drone facing)
+   * Returns: x = forward/back, y = right/left, z = up/down
    */
   getLocalVelocity() {
-    const cos = Math.cos(-this.yaw);
-    const sin = Math.sin(-this.yaw);
+    // Transform world velocity to local coordinates
+    // Forward direction in world: (sin(yaw), 0, cos(yaw))
+    // Right direction in world: (cos(yaw), 0, -sin(yaw))
+    const cosYaw = Math.cos(this.yaw);
+    const sinYaw = Math.sin(this.yaw);
     
+    // Project world velocity onto local axes
+    // Forward = dot(worldVel, forwardDir) = vx*sin(yaw) + vz*cos(yaw)
+    // Right = dot(worldVel, rightDir) = vx*cos(yaw) - vz*sin(yaw)
     return {
-      x: this.vx * sin + this.vz * cos,   // Forward/back
-      y: this.vx * cos - this.vz * sin,   // Right/left
-      z: this.vy,                          // Up/down
+      x: this.vx * sinYaw + this.vz * cosYaw,   // Forward/back
+      y: this.vx * cosYaw - this.vz * sinYaw,   // Right/left
+      z: this.vy,                                // Up/down (unchanged)
     };
   }
   
@@ -287,19 +294,27 @@ export class DronePhysics {
   
   /**
    * Transform world coordinates to drone-local coordinates
+   * Returns: x = right, y = up, z = forward (relative to drone facing)
+   * 
+   * Drone forward direction in world: (sin(yaw), 0, cos(yaw))
+   * Drone right direction in world: (cos(yaw), 0, -sin(yaw))
    */
   worldToLocal(worldX, worldY, worldZ) {
+    // Vector from drone to target in world coordinates
     const dx = worldX - this.x;
     const dy = worldY - this.y;
     const dz = worldZ - this.z;
     
-    const cos = Math.cos(-this.yaw);
-    const sin = Math.sin(-this.yaw);
+    const cosYaw = Math.cos(this.yaw);
+    const sinYaw = Math.sin(this.yaw);
     
+    // Project onto local axes:
+    // Forward (local z) = dot(delta, forwardDir) = dx*sin(yaw) + dz*cos(yaw)
+    // Right (local x) = dot(delta, rightDir) = dx*cos(yaw) - dz*sin(yaw)
     return {
-      x: dx * cos - dz * sin,
-      y: dy,
-      z: dx * sin + dz * cos,
+      x: dx * cosYaw - dz * sinYaw,   // Right component
+      y: dy,                           // Up component (unchanged)
+      z: dx * sinYaw + dz * cosYaw,   // Forward component
     };
   }
   
