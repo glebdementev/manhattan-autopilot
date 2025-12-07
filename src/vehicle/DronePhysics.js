@@ -5,7 +5,7 @@
  * internal PD controller handles thrust generation.
  */
 import { DRONE } from '../config.js';
-import { CollisionSystem } from '../collision/index.js';
+import { MeshCollider } from '../collision/MeshCollider.js';
 import { VelocityController } from './VelocityController.js';
 
 export class DronePhysics {
@@ -30,9 +30,12 @@ export class DronePhysics {
     this.distanceTraveled = 0;
     this.maxSpeedReached = 0;
     
-    // Collision system
-    this.collisionSystem = new CollisionSystem();
-    this.collisionSystem.setDroneSize(DRONE.SIZE, DRONE.SIZE * 0.35, DRONE.SIZE);
+    // Mesh-based collision system
+    this.meshCollider = new MeshCollider();
+    this.meshCollider.setDroneRadius(DRONE.SIZE / 2);
+    
+    // Terrain height function
+    this.getTerrainHeight = null;
     
     // Collision state
     this.lastCollision = false;
@@ -42,7 +45,7 @@ export class DronePhysics {
     // Collision callback
     this.onCollision = null;
     
-    // Legacy collision checker reference
+    // Forest reference for terrain
     this.collisionChecker = null;
   }
   
@@ -53,22 +56,13 @@ export class DronePhysics {
     this.collisionChecker = checker;
     
     if (checker) {
-      this.collisionSystem.setTerrainHeightFunction((x, z) => {
-        return checker.getTerrainHeight(x, z);
-      });
+      this.getTerrainHeight = (x, z) => checker.getTerrainHeight(x, z);
       
-      this.collisionSystem.clearObstacles();
-      const obstacles = checker.getObstacles();
-      this.collisionSystem.addObstacles(obstacles);
+      // Set mesh targets for collision
+      const targets = checker.getRaycastTargets();
+      this.meshCollider.setTargets(targets);
       
-      const halfSize = 150 / 2 - 5;
-      this.collisionSystem.setWorldBounds(
-        -halfSize, halfSize,
-        -100, 1000,
-        -halfSize, halfSize
-      );
-      
-      console.log(`Collision system initialized with ${obstacles.length} obstacles.`);
+      console.log(`Mesh collision initialized with ${targets.length} target meshes.`);
     }
   }
   
@@ -77,10 +71,9 @@ export class DronePhysics {
    */
   refreshCollisionData() {
     if (this.collisionChecker) {
-      this.collisionSystem.clearObstacles();
-      const obstacles = this.collisionChecker.getObstacles();
-      this.collisionSystem.addObstacles(obstacles);
-      console.log(`Collision data refreshed. ${obstacles.length} obstacles.`);
+      const targets = this.collisionChecker.getRaycastTargets();
+      this.meshCollider.setTargets(targets);
+      console.log(`Mesh collision refreshed with ${targets.length} targets.`);
     }
   }
   
@@ -118,9 +111,18 @@ export class DronePhysics {
     this.lastCollision = false;
     this.lastCollisionType = null;
     
-    // Check if already in collision
-    const currentCollision = this.collisionSystem.checkCollision(this.x, this.y, this.z);
+    // Check terrain collision first
+    if (this.getTerrainHeight) {
+      const terrainY = this.getTerrainHeight(this.x, this.z);
+      const droneBottom = this.y - DRONE.SIZE * 0.175; // half height
+      if (droneBottom < terrainY) {
+        this.handleCollision('terrain');
+        return { moved: false };
+      }
+    }
     
+    // Check mesh collision at current position
+    const currentCollision = this.meshCollider.checkCollision(this.x, this.y, this.z);
     if (currentCollision.collided) {
       this.handleCollision(currentCollision.type);
       return { moved: false };
@@ -164,11 +166,25 @@ export class DronePhysics {
     const dz = this.vz * dt;
     const moveDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
     
-    // Swept collision detection
+    // Check new position for terrain collision
+    const newX = this.x + dx;
+    const newY = this.y + dy;
+    const newZ = this.z + dz;
+    
+    if (this.getTerrainHeight) {
+      const terrainY = this.getTerrainHeight(newX, newZ);
+      const droneBottom = newY - DRONE.SIZE * 0.175;
+      if (droneBottom < terrainY) {
+        this.handleCollision('terrain');
+        return { moved: false };
+      }
+    }
+    
+    // Swept mesh collision detection
     if (moveDistance > 0.0001) {
-      const sweptResult = this.collisionSystem.checkSweptCollision(
+      const sweptResult = this.meshCollider.checkSweptCollision(
         this.x, this.y, this.z,
-        this.x + dx, this.y + dy, this.z + dz
+        newX, newY, newZ
       );
       
       if (sweptResult.collided) {
@@ -178,9 +194,9 @@ export class DronePhysics {
     }
     
     // Update position
-    this.x += dx;
-    this.y += dy;
-    this.z += dz;
+    this.x = newX;
+    this.y = newY;
+    this.z = newZ;
     this.distanceTraveled += moveDistance;
     
     return { moved: true, dx, dy, dz };
@@ -206,7 +222,17 @@ export class DronePhysics {
    * Check collision at a specific position
    */
   checkCollisionAtPosition(posX, posY, posZ) {
-    const result = this.collisionSystem.checkCollision(posX, posY, posZ);
+    // Check terrain
+    if (this.getTerrainHeight) {
+      const terrainY = this.getTerrainHeight(posX, posZ);
+      const droneBottom = posY - DRONE.SIZE * 0.175;
+      if (droneBottom < terrainY) {
+        return { collided: true, type: 'terrain' };
+      }
+    }
+    
+    // Check mesh collision
+    const result = this.meshCollider.checkCollision(posX, posY, posZ);
     return { collided: result.collided, type: result.type };
   }
   
@@ -311,6 +337,6 @@ export class DronePhysics {
   }
   
   getCollisionSystem() {
-    return this.collisionSystem;
+    return this.meshCollider;
   }
 }

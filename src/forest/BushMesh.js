@@ -48,6 +48,7 @@ export class BushMesh {
     // Create mesh
     const bushMat = new THREE.MeshLambertMaterial({ color: COLORS.BUSH });
     this.bushMesh = new THREE.Mesh(mergedGeom, bushMat);
+    this.bushMesh.name = 'bush';
     this.bushMesh.castShadow = true;
     
     return {

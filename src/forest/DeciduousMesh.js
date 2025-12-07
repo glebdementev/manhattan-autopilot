@@ -85,6 +85,8 @@ export class DeciduousMesh {
     this.canopyMesh = new THREE.Mesh(mergedCanopyGeom, canopyMat);
     this.trunkMesh = new THREE.Mesh(mergedTrunkGeom, trunkMat);
     
+    this.canopyMesh.name = 'deciduous_canopy';
+    this.trunkMesh.name = 'deciduous_trunk';
     this.canopyMesh.castShadow = true;
     this.trunkMesh.castShadow = true;
     

@@ -348,24 +348,5 @@ class Simulation {
 window.addEventListener('DOMContentLoaded', async () => {
   const sim = new Simulation();
   await sim.init();
-  
-  // Expose for debugging
   window.sim = sim;
-  
-  // Debug helper functions
-  window.enableCollisionDebug = () => {
-    const collisionSystem = sim.components.drone.getCollisionSystem();
-    collisionSystem.setDebugEnabled(true);
-    collisionSystem.createDebugHelpers(sim.components.sceneManager.scene);
-    console.log('Collision debug visualization enabled');
-  };
-  
-  window.disableCollisionDebug = () => {
-    const collisionSystem = sim.components.drone.getCollisionSystem();
-    collisionSystem.setDebugEnabled(false);
-    collisionSystem.clearDebugHelpers();
-    console.log('Collision debug visualization disabled');
-  };
-  
-  console.log('Debug helpers available: enableCollisionDebug(), disableCollisionDebug()');
 });

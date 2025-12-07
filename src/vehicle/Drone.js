@@ -171,7 +171,7 @@ export class Drone {
   }
   
   /**
-   * Get the collision system
+   * Get the collision system (mesh collider)
    */
   getCollisionSystem() {
     return this.physics.getCollisionSystem();

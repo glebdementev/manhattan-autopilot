@@ -82,6 +82,8 @@ export class ConiferMesh {
     this.foliageMesh = new THREE.Mesh(mergedConeGeom, coneMat);
     this.trunkMesh = new THREE.Mesh(mergedTrunkGeom, trunkMat);
     
+    this.foliageMesh.name = 'conifer_foliage';
+    this.trunkMesh.name = 'conifer_trunk';
     this.foliageMesh.castShadow = true;
     this.trunkMesh.castShadow = true;
     
