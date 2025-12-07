@@ -13,14 +13,14 @@ export class CurriculumManager {
     // Current difficulty level (0 = easiest)
     this.level = 0;
     
-    // Curriculum stages - ONLY distance changes, target radius is ALWAYS 1.0 (2m diameter)
+    // Curriculum stages - longer distances to ensure obstacles in path
     this.stages = [
-      { minDist: 3,  maxDist: 5,  name: 'trivial' },
-      { minDist: 5,  maxDist: 8,  name: 'very_easy' },
       { minDist: 8,  maxDist: 12, name: 'easy' },
-      { minDist: 12, maxDist: 18, name: 'medium' },
-      { minDist: 18, maxDist: 25, name: 'hard' },
-      { minDist: 25, maxDist: 40, name: 'very_hard' },
+      { minDist: 12, maxDist: 20, name: 'medium' },
+      { minDist: 20, maxDist: 30, name: 'hard' },
+      { minDist: 30, maxDist: 45, name: 'very_hard' },
+      { minDist: 45, maxDist: 60, name: 'expert' },
+      { minDist: 60, maxDist: 80, name: 'master' },
     ];
     
     // FIXED target radius (1.0 = 2m diameter sphere)
@@ -29,7 +29,7 @@ export class CurriculumManager {
     // Tracking for level progression
     // Need CONSECUTIVE successes to prove reliable learning
     this.consecutiveSuccesses = 0;
-    this.successesNeededToAdvance = 50; // Need 50 CONSECUTIVE successes
+    this.successesNeededToAdvance = 20; // Need 50 CONSECUTIVE successes
     
     // Track current target (don't regenerate on failure)
     this.currentTargetPosition = null;

@@ -5,31 +5,31 @@
 
 // Forest generation
 export const FOREST = {
-  SIZE: 150,              // Reduced forest area size (meters)
-  TERRAIN_SCALE: 0.015,   // Perlin noise scale for terrain (reduced for flatter terrain)
-  TERRAIN_HEIGHT: 5,      // Maximum terrain height variation (reduced from 12)
-  TERRAIN_SEGMENTS: 64,   // Reduced terrain mesh resolution (was 128)
+  SIZE: 200,              // Larger forest (meters)
+  TERRAIN_SCALE: 0.015,   // Perlin noise scale for terrain
+  TERRAIN_HEIGHT: 5,      // Maximum terrain height variation
+  TERRAIN_SEGMENTS: 80,   // Terrain mesh resolution
   
-  // Trees - DENSE FOREST (almost covering entire terrain)
-  TREE_DENSITY: 0.0175,   // Reduced 30% (~390 trees)
+  // Trees - DENSE FOREST for obstacle avoidance training
+  TREE_DENSITY: 0.025,    // Denser trees (~1000 trees)
   CONIFER_RATIO: 0.5,     // Ratio of coniferous to deciduous trees
   
-  // Coniferous trees (pine/spruce) - BIGGER with reduced variation
+  // Coniferous trees (pine/spruce)
   CONIFER_MIN_HEIGHT: 18,
   CONIFER_MAX_HEIGHT: 24,
   CONIFER_TRUNK_RADIUS: 0.5,
-  CONIFER_CROWN_RADIUS: 4.0,
+  CONIFER_CROWN_RADIUS: 4.5,  // Slightly larger crowns
   
-  // Deciduous trees (oak/maple style) - TALLER with reduced variation
+  // Deciduous trees (oak/maple style)
   DECIDUOUS_MIN_HEIGHT: 16,
   DECIDUOUS_MAX_HEIGHT: 22,
   DECIDUOUS_TRUNK_RADIUS: 0.6,
-  DECIDUOUS_CROWN_RADIUS: 5.0,
+  DECIDUOUS_CROWN_RADIUS: 5.5,  // Slightly larger crowns
   
-  // Bushes - denser with larger sizes
-  BUSH_DENSITY: 0.012,    // More bushes (~270)
+  // Bushes - more obstacles at ground level
+  BUSH_DENSITY: 0.015,    // More bushes
   BUSH_MIN_SIZE: 1.0,
-  BUSH_MAX_SIZE: 3.5,     // Can be much larger now
+  BUSH_MAX_SIZE: 4.0,     // Larger bushes
   
   // Canopy
   CANOPY_HEIGHT: 12,      // Average height of forest canopy
@@ -124,8 +124,8 @@ export const CAMERA = {
 // Reinforcement Learning Configuration
 export const RL_CONFIG = {
   // Episode settings
-  MAX_EPISODE_STEPS: 500,       // Shorter episodes (curriculum starts easy)
-  MAX_TARGET_DISTANCE: 50,      // Max distance for normalization
+  MAX_EPISODE_STEPS: 1000,      // Longer episodes for longer distances
+  MAX_TARGET_DISTANCE: 80,      // Max distance for normalization
   
   // ===========================================
   // NEURAL NETWORK
