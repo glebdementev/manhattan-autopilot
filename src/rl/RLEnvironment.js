@@ -211,6 +211,7 @@ export class RLEnvironment {
       hadCollision: this.drone.hadCollision(),
       minLidarDist: this.lidar.getMinDistance(),
       nadirDistance: this.lidar.getNadirDistance(),
+      zenithDistance: this.lidar.getZenithDistance(),
     });
   }
   

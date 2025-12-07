@@ -264,6 +264,7 @@ export class ForestGenerator {
   /**
    * Generate a target position - STRAIGHT AHEAD, NO ROTATION
    * Target is at SAME X as drone, just different Z (forward)
+   * Ensures target is at least 2m away from nearest tree
    */
   generateTargetPosition(currentX, currentZ, minDist = 3, maxDist = 10) {
     let seed = Date.now();
@@ -272,15 +273,55 @@ export class ForestGenerator {
       return (seed - 1) / 2147483646;
     };
     
-    // Target at SAME X, just forward in Z
-    const x = currentX; // SAME X - no angle!
-    const dist = minDist + random() * (maxDist - minDist);
-    const z = currentZ - dist; // Forward is -Z
+    let bestTarget = null;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 50;
+
+    while (attempts < MAX_ATTEMPTS) {
+      attempts++;
+      
+      // Target at SAME X, just forward in Z
+      const x = currentX; // SAME X - no angle!
+      const dist = minDist + random() * (maxDist - minDist);
+      const z = currentZ - dist; // Forward is -Z
+      
+      const groundY = this.getTerrainHeight(x, z);
+      const y = groundY + 1.5; // Same height as drone spawn
+      
+      // Check distance to nearest tree
+      if (this.isPositionValidForTarget(x, z)) {
+        return { x, y, z };
+      }
+      
+      // Store last generated as fallback
+      bestTarget = { x, y, z };
+    }
     
-    const groundY = this.getTerrainHeight(x, z);
-    const y = groundY + 1.5; // Same height as drone spawn
+    console.warn("Could not find valid target position far enough from trees, using fallback");
+    return bestTarget;
+  }
+
+  /**
+   * Check if position is valid for target (at least 2m from any tree)
+   */
+  isPositionValidForTarget(x, z) {
+    const MIN_DISTANCE = 2.0;
     
-    return { x, y, z };
+    for (const obstacle of this.obstacles) {
+      // Only check trunks for the "2 meters away from tree" rule
+      // Canopies shouldn't invalidate a target position unless we want to avoid them too
+      if (obstacle.type === 'trunk') {
+        const dx = x - obstacle.x;
+        const dz = z - obstacle.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        
+        // Distance from center must be > 2m + radius
+        if (dist < MIN_DISTANCE + obstacle.radius) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
   
   /**

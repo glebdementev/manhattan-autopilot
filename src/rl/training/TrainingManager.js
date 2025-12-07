@@ -4,9 +4,17 @@
  * The agent uses: final_action = base_action + correction
  * Where base_action = observation[0:3] (target direction)
  * 
- * We train the correction network:
- * - Positive reward: correction was helpful, reinforce it
- * - Negative reward: correction was harmful, target = zero (trust base)
+ * We train the correction network using returns:
+ * - High return: correction was helpful (long-term), reinforce it
+ * - Low return: gently decay correction towards zero (trust base more)
+ * 
+ * Observation layout (see ObservationBuilder):
+ * - [0-2]  Target direction (X, Y, Z)
+ * - [3-5]  Current velocity (vx, vy, vz)
+ * - [6-21] 16 lidar ray distances (normalized 0-1)
+ * - [22]   Nadir distance (normalized)
+ * - [23]   Zenith distance (normalized)
+ * - [24]   Target distance (normalized)
  */
 
 import * as tf from '@tensorflow/tfjs';
@@ -55,7 +63,7 @@ export class TrainingManager {
       
       const returns = this.computeReturns(rewards, dones);
       const valueLoss = await this.trainValueNetwork(observations, returns);
-      const policyLoss = await this.trainPolicyNetwork(observations, actions, rewards);
+      const policyLoss = await this.trainPolicyNetwork(observations, actions, rewards, returns);
       
       this.trainingStep++;
       
@@ -100,21 +108,29 @@ export class TrainingManager {
    * Train correction network
    * 
    * observation[0:3] = base action (target direction)
-   * correction = action - base
+   * correction       = action - base
    * 
-   * Strategy:
-   * - Good reward: reinforce the correction that worked
-   * - Bad reward: target = zero correction (let base action work)
-   * - Very close obstacle: learn to steer away
+   * Strategy (simple return-weighted regression):
+   * - Above-average return: reinforce the correction that worked
+   * - Below-average return: gently decay correction towards zero (regularisation)
+   * 
+   * NOTE: We DO NOT zero-out corrections just because an obstacle
+   *       is close — that would teach the agent to "do nothing"
+   *       exactly when avoidance is needed. Proximity is only
+   *       used as a soft signal, not a hard override.
    */
-  async trainPolicyNetwork(observations, actions, rewards) {
+  async trainPolicyNetwork(observations, actions, rewards, returns) {
     const trainObs = [];
     const trainTargets = [];
-    
+
+    // Compute a simple baseline from returns to decide what is
+    // "better than average" behaviour in this batch.
+    const meanReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
     for (let i = 0; i < observations.length; i++) {
       const obs = observations[i];
       const action = actions[i];
-      const reward = rewards[i];
+      const reward = rewards[i]; // kept for logging only
+      const G = returns[i];
       
       // Base action = target direction (first 3 elements)
       const baseAction = [obs[0], obs[1], obs[2]];
@@ -126,25 +142,32 @@ export class TrainingManager {
         action[2] - baseAction[2],
       ];
       
-      // Check if any obstacle is very close (< 0.2 normalized = 5m)
-      const obsDists = obs.slice(3, 7);
-      const minObsDist = Math.min(...obsDists);
-      const nadir = obs[7];
-      const zenith = obs[8];
+      // Lidar / proximity information from observation
+      // 16 forward rays: [6..21], nadir: [22], zenith: [23]
+      const lidarDists = obs.slice(6, 22);
+      const minObsDist = Math.min(...lidarDists);
+      const nadir = obs[22];
+      const zenith = obs[23];
+
+      const isVeryCloseObstacle =
+        minObsDist < 0.15 || // < ~15% of lidar range
+        nadir < 0.08 ||      // very close to ground
+        zenith < 0.08;       // very close to canopy/ceiling
       
       trainObs.push(obs);
-      
-      if (reward > 0.1) {
-        // Good outcome - reinforce the correction
+
+      // Advantage-like signal: how much better than batch baseline.
+      const advantage = G - meanReturn;
+
+      if (advantage > 0) {
+        // Above-average long-term outcome - reinforce the correction
         trainTargets.push(correction);
-      } else if (reward < -0.1 || minObsDist < 0.15 || nadir < 0.1 || zenith < 0.1) {
-        // Bad outcome OR very close to obstacle
-        // Target = zero correction (trust base action)
-        // This teaches: when in doubt, go straight to target
-        trainTargets.push([0, 0, 0]);
       } else {
-        // Neutral - small decay towards zero
-        trainTargets.push(correction.map(c => c * 0.5));
+        // Below-average outcome - gentle regularisation towards zero.
+        // If we are in a very close-proximity state, decay a bit faster
+        // so the network doesn't learn to "like" being stuck near obstacles.
+        const decay = isVeryCloseObstacle ? 0.4 : 0.7;
+        trainTargets.push(correction.map(c => c * decay));
       }
     }
     
