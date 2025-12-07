@@ -1,64 +1,38 @@
 /**
  * ObstacleCollider - Handles obstacle collision detection
  * 
- * Uses two-phase detection:
- * - Broad phase: AABB intersection test (fast)
- * - Narrow phase: Box-cylinder collision test (precise)
+ * Uses box-cylinder collision test for accurate detection
  */
-import * as THREE from 'three';
 
 export class ObstacleCollider {
   constructor() {
-    this.obstacleBoxes = [];
+    this.obstacles = [];
   }
   
   /**
-   * Clear all obstacle boxes (call before regenerating scene)
+   * Clear all obstacles
    */
   clear() {
-    this.obstacleBoxes = [];
+    this.obstacles = [];
   }
   
   /**
    * Add an obstacle from raw data
-   * Converts cylindrical obstacle data to AABB
    * @param {Object} obstacle - { type, x, z, radius, minY, maxY }
    */
   addObstacle(obstacle) {
-    // Convert cylinder to AABB
-    // For a cylinder at (x, z) with radius r, the AABB is:
-    // min: (x - r, minY, z - r)
-    // max: (x + r, maxY, z + r)
-    const box = new THREE.Box3(
-      new THREE.Vector3(
-        obstacle.x - obstacle.radius,
-        obstacle.minY,
-        obstacle.z - obstacle.radius
-      ),
-      new THREE.Vector3(
-        obstacle.x + obstacle.radius,
-        obstacle.maxY,
-        obstacle.z + obstacle.radius
-      )
-    );
-    
-    this.obstacleBoxes.push({
-      box,
+    this.obstacles.push({
       type: obstacle.type,
-      // Store original cylinder data for more precise checks if needed
-      cylinder: {
-        x: obstacle.x,
-        z: obstacle.z,
-        radius: obstacle.radius,
-        minY: obstacle.minY,
-        maxY: obstacle.maxY,
-      }
+      x: obstacle.x,
+      z: obstacle.z,
+      radius: obstacle.radius,
+      minY: obstacle.minY,
+      maxY: obstacle.maxY,
     });
   }
   
   /**
    * Add multiple obstacles at once
-   * @param {Array} obstacles - Array of obstacle objects
    */
   addObstacles(obstacles) {
     for (const obstacle of obstacles) {
@@ -67,76 +41,60 @@ export class ObstacleCollider {
   }
   
   /**
-   * Get obstacle by index
-   * @param {number} index 
-   * @returns {Object|null}
-   */
-  getObstacle(index) {
-    return this.obstacleBoxes[index] || null;
-  }
-  
-  /**
-   * Get all obstacles
-   * @returns {Array}
-   */
-  getObstacles() {
-    return this.obstacleBoxes;
-  }
-  
-  /**
    * Get obstacle count
-   * @returns {number}
    */
   getCount() {
-    return this.obstacleBoxes.length;
+    return this.obstacles.length;
   }
   
   /**
-   * Check collision with obstacles at a position
-   * @param {THREE.Box3} droneBox - The drone's bounding box
-   * @returns {Object} - { collided, type, obstacleIndex, penetration }
+   * Check collision at a position with drone dimensions
+   * @param {number} x - Drone center X
+   * @param {number} y - Drone center Y
+   * @param {number} z - Drone center Z
+   * @param {THREE.Vector3} droneSize - Drone dimensions
    */
-  checkCollision(droneBox) {
-    for (let i = 0; i < this.obstacleBoxes.length; i++) {
-      const obstacle = this.obstacleBoxes[i];
-      
-      // Broad phase: AABB intersection test (fast)
-      if (droneBox.intersectsBox(obstacle.box)) {
-        // Narrow phase: More precise cylinder-box test
-        if (this.checkBoxCylinderCollision(droneBox, obstacle.cylinder)) {
-          return {
-            collided: true,
-            type: obstacle.type,
-            obstacleIndex: i,
-            penetration: this.calculatePenetration(droneBox, obstacle.cylinder),
-          };
-        }
+  checkCollisionAtPosition(x, y, z, droneSize) {
+    const halfWidth = droneSize.x / 2;
+    const halfHeight = droneSize.y / 2;
+    const halfDepth = droneSize.z / 2;
+    
+    // Drone bounding box
+    const boxMinX = x - halfWidth;
+    const boxMaxX = x + halfWidth;
+    const boxMinY = y - halfHeight;
+    const boxMaxY = y + halfHeight;
+    const boxMinZ = z - halfDepth;
+    const boxMaxZ = z + halfDepth;
+    
+    for (const obstacle of this.obstacles) {
+      if (this.checkBoxCylinderCollision(
+        boxMinX, boxMaxX, boxMinY, boxMaxY, boxMinZ, boxMaxZ,
+        obstacle
+      )) {
+        return {
+          collided: true,
+          type: obstacle.type,
+          penetration: this.calculatePenetration(x, z, obstacle),
+        };
       }
     }
     
-    return {
-      collided: false,
-      type: null,
-      obstacleIndex: -1,
-      penetration: 0,
-    };
+    return { collided: false, type: null, penetration: 0 };
   }
   
   /**
-   * Precise box-cylinder collision test
-   * @param {THREE.Box3} box - The drone's bounding box
-   * @param {Object} cylinder - { x, z, radius, minY, maxY }
-   * @returns {boolean}
+   * Check box-cylinder collision
    */
-  checkBoxCylinderCollision(box, cylinder) {
+  checkBoxCylinderCollision(boxMinX, boxMaxX, boxMinY, boxMaxY, boxMinZ, boxMaxZ, cylinder) {
     // First check vertical overlap
-    if (box.max.y < cylinder.minY || box.min.y > cylinder.maxY) {
+    if (boxMaxY < cylinder.minY || boxMinY > cylinder.maxY) {
       return false;
     }
     
     // Find the closest point on the box to the cylinder axis (in XZ plane)
-    const closestX = Math.max(box.min.x, Math.min(cylinder.x, box.max.x));
-    const closestZ = Math.max(box.min.z, Math.min(cylinder.z, box.max.z));
+    const closestX = Math.max(boxMinX, Math.min(cylinder.x, boxMaxX));
+    const closestZ = Math.max(boxMinZ, Math.min(cylinder.z, boxMaxZ));
     
     // Calculate squared distance from closest point to cylinder center
     const dx = closestX - cylinder.x;
@@ -148,20 +106,12 @@ export class ObstacleCollider {
   }
   
   /**
-   * Calculate penetration depth for box-cylinder collision
-   * @param {THREE.Box3} box 
-   * @param {Object} cylinder 
-   * @returns {number}
+   * Calculate penetration depth
    */
-  calculatePenetration(box, cylinder) {
-    const closestX = Math.max(box.min.x, Math.min(cylinder.x, box.max.x));
-    const closestZ = Math.max(box.min.z, Math.min(cylinder.z, box.max.z));
-    
-    const dx = closestX - cylinder.x;
-    const dz = closestZ - cylinder.z;
+  calculatePenetration(x, z, cylinder) {
+    const dx = x - cylinder.x;
+    const dz = z - cylinder.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
-    
     return Math.max(0, cylinder.radius - dist);
   }
 }
-

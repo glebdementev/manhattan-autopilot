@@ -48,12 +48,16 @@ export class Drone {
     // Collision state
     this.lastCollision = false;
     this.lastCollisionType = null;
+    this.collisionFrozen = false; // Freeze drone completely after collision
     
     // Collision callback
     this.onCollision = null;
     
     // Legacy collision checker reference (for backwards compatibility)
     this.collisionChecker = null;
+    
+    // Debug logging throttling
+    this.lastDebugLog = 0;
   }
   
   /**
@@ -81,6 +85,8 @@ export class Drone {
         -100, 1000,           // Y bounds (no ceiling!)
         -halfSize, halfSize   // Z bounds
       );
+      
+      console.log(`Collision system initialized with ${obstacles.length} obstacles.`);
     }
   }
   
@@ -92,6 +98,7 @@ export class Drone {
       this.collisionSystem.clearObstacles();
       const obstacles = this.collisionChecker.getObstacles();
       this.collisionSystem.addObstacles(obstacles);
+      console.log(`Collision data refreshed. ${obstacles.length} obstacles.`);
     }
   }
   
@@ -148,19 +155,43 @@ export class Drone {
    * Uses CollisionSystem for robust collision detection
    */
   update(dt) {
-    // Calculate acceleration from thrust
+    // If frozen from collision, do nothing
+    if (this.collisionFrozen) {
+      this.lastCollision = true;
+      return;
+    }
+    
+    // Reset collision state at start of frame
+    this.lastCollision = false;
+    this.lastCollisionType = null;
+    
+    // FIRST: Check if we're already in collision (before any physics)
+    const currentCollision = this.collisionSystem.checkCollision(this.x, this.y, this.z);
+    if (currentCollision.collided) {
+      this.lastCollision = true;
+      this.lastCollisionType = currentCollision.type;
+      this.collisionFrozen = true;
+      
+      // Zero velocity
+      this.vx = 0;
+      this.vy = 0;
+      this.vz = 0;
+      
+      if (this.onCollision) {
+        this.onCollision(currentCollision.type);
+      }
+      return;
+    }
+    
+    // Calculate acceleration from thrust (no gravity)
     const accelX = this.thrustX * DRONE.MAX_ACCELERATION;
     const accelZ = this.thrustZ * DRONE.MAX_ACCELERATION;
-    const accelY = this.thrustY * DRONE.MAX_ACCELERATION - DRONE.HOVER_POWER; // Gravity offset
+    const accelY = this.thrustY * DRONE.MAX_ACCELERATION;
     
-    // Apply drag
-    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy + this.vz * this.vz);
-    const dragFactor = 1 - DRONE.DRAG_COEFFICIENT * dt;
-    
-    // Update velocity
-    this.vx = (this.vx + accelX * dt) * dragFactor;
-    this.vy = (this.vy + accelY * dt) * dragFactor;
-    this.vz = (this.vz + accelZ * dt) * dragFactor;
+    // Update velocity (no drag/inertia)
+    this.vx = accelX * dt * 10;
+    this.vy = accelY * dt * 10;
+    this.vz = accelZ * dt * 10;
     
     // Clamp speed
     const currentSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy + this.vz * this.vz);
@@ -182,24 +213,8 @@ export class Drone {
     const dz = this.vz * dt;
     const moveDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
     
-    // Reset collision state
-    this.lastCollision = false;
-    this.lastCollisionType = null;
-    
-    // First check: Are we currently inside an obstacle? (spawn collision or phasing)
-    const currentCollision = this.collisionSystem.checkCollision(this.x, this.y, this.z);
-    if (currentCollision.collided) {
-      this.lastCollision = true;
-      this.lastCollisionType = currentCollision.type;
-      
-      if (this.onCollision) {
-        this.onCollision(currentCollision.type);
-      }
-      return;
-    }
-    
-    // Swept collision detection: check multiple points along movement path
-    if (moveDistance > 0.001) {
+    // Swept collision detection along movement path
+    if (moveDistance > 0.0001) {
       const sweptResult = this.collisionSystem.checkSweptCollision(
         this.x, this.y, this.z,
         this.x + dx, this.y + dy, this.z + dz
@@ -208,13 +223,16 @@ export class Drone {
       if (sweptResult.collided) {
         this.lastCollision = true;
         this.lastCollisionType = sweptResult.type;
+        this.collisionFrozen = true;
         
-        // Trigger collision callback (for restart)
+        // Zero velocity
+        this.vx = 0;
+        this.vy = 0;
+        this.vz = 0;
+        
         if (this.onCollision) {
           this.onCollision(sweptResult.type);
         }
-        
-        // Don't update position - collision callback will handle restart
         return;
       }
     }
@@ -303,6 +321,27 @@ export class Drone {
     this.vz = 0;
     this.updateMesh();
   }
+  
+  /**
+   * Set drone yaw (facing direction)
+   * @param {number} yaw - Yaw angle in radians
+   */
+  setYaw(yaw) {
+    this.yaw = yaw;
+    this.updateMesh();
+  }
+  
+  /**
+   * Make drone face a target position
+   * @param {number} targetX - Target X position
+   * @param {number} targetZ - Target Z position
+   */
+  lookAt(targetX, targetZ) {
+    const dx = targetX - this.x;
+    const dz = targetZ - this.z;
+    this.yaw = Math.atan2(dx, dz);
+    this.updateMesh();
+  }
 
   /**
    * Set control inputs
@@ -381,6 +420,7 @@ export class Drone {
     this.maxSpeedReached = 0;
     this.lastCollision = false;
     this.lastCollisionType = null;
+    this.collisionFrozen = false;
     this.updateMesh();
   }
 

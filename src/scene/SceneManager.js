@@ -123,12 +123,6 @@ export class SceneManager {
   }
 
   render() {
-    // Simple pulse animation for target
-    if (this.targetMarker) {
-      const scale = 1 + Math.sin(Date.now() * 0.004) * 0.15;
-      this.targetMarker.children[0].scale.setScalar(scale);
-    }
-    
     this.renderer.render(this.scene, this.camera);
   }
 

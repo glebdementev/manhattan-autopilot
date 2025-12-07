@@ -75,6 +75,10 @@ export class RLEnvironment {
     const state = this.drone.getState();
     this.targetManager.generate(state.x, state.z);
     
+    // Make drone face the target
+    const target = this.targetManager.getPosition();
+    this.drone.lookAt(target.x, target.z);
+    
     // Reset episode state
     this.episodeStats.startEpisode();
     this.rewardCalculator.reset(); // Reset position history for stagnation detection

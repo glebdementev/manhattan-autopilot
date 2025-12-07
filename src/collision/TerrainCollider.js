@@ -31,40 +31,18 @@ export class TerrainCollider {
       return { collided: false, penetration: 0, terrainY: 0 };
     }
     
-    const halfWidth = droneSize.x / 2;
     const halfHeight = droneSize.y / 2;
-    const halfDepth = droneSize.z / 2;
     const droneBottomY = y - halfHeight;
     
-    // Sample terrain at multiple points under the drone
-    // This handles uneven terrain properly
-    const samplePoints = [
-      { x: x, z: z },                           // Center
-      { x: x - halfWidth, z: z - halfDepth },   // Corner 1
-      { x: x + halfWidth, z: z - halfDepth },   // Corner 2
-      { x: x - halfWidth, z: z + halfDepth },   // Corner 3
-      { x: x + halfWidth, z: z + halfDepth },   // Corner 4
-      { x: x, z: z - halfDepth },               // Edge midpoint 1
-      { x: x, z: z + halfDepth },               // Edge midpoint 2
-      { x: x - halfWidth, z: z },               // Edge midpoint 3
-      { x: x + halfWidth, z: z },               // Edge midpoint 4
-    ];
-    
-    let maxTerrainY = -Infinity;
-    
-    for (const point of samplePoints) {
-      const terrainY = this.heightFn(point.x, point.z);
-      if (terrainY > maxTerrainY) {
-        maxTerrainY = terrainY;
-      }
-    }
-    
-    const penetration = maxTerrainY - droneBottomY;
+    // Sample terrain at center point
+    const terrainY = this.heightFn(x, z);
+    const penetration = terrainY - droneBottomY;
+    const collided = penetration > 0;
     
     return {
-      collided: penetration > 0,
+      collided,
       penetration: Math.max(0, penetration),
-      terrainY: maxTerrainY,
+      terrainY,
     };
   }
 }

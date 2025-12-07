@@ -35,33 +35,32 @@ import { DRONE, RL_CONFIG } from '../../config.js';
 export class RewardCalculator {
   constructor() {
     // Store reward config for easy access
+    // REBALANCED REWARDS: Prioritizing target seeking and obstacle avoidance
     this.config = {
-      // Goal rewards
-      targetReached: RL_CONFIG.REWARD_TARGET_REACHED,
-      distanceProgress: RL_CONFIG.REWARD_DISTANCE_PROGRESS,
-      distanceRegress: RL_CONFIG.REWARD_DISTANCE_REGRESS,
+      // Goal rewards (Primary Goal #1: Move to target)
+      targetReached: 500,           // Massive bonus for success
+      distanceProgress: 10.0,       // Strong reward for getting closer
+      distanceRegress: 15.0,        // Strong penalty for moving away
       
-      // Collision/safety penalties (CRITICAL - must HATE proximity)
-      collision: RL_CONFIG.REWARD_COLLISION,
-      obstacleProximity: RL_CONFIG.REWARD_OBSTACLE_PROXIMITY,
-      obstacleVeryClose: RL_CONFIG.REWARD_OBSTACLE_VERY_CLOSE,
+      // Collision/safety penalties (Primary Goal #2: Safety)
+      collision: -1000,             // Terminal penalty
+      obstacleProximity: -5.0,      // Strong "force field"
+      obstacleVeryClose: -30.0,     // Extreme proximity penalty
       obstacleDangerDistance: RL_CONFIG.OBSTACLE_DANGER_DISTANCE,
       obstacleCloseDistance: RL_CONFIG.OBSTACLE_CLOSE_DISTANCE,
       obstacleCriticalDistance: RL_CONFIG.OBSTACLE_CRITICAL_DISTANCE,
       
-      // Speed rewards
-      highSpeed: RL_CONFIG.REWARD_HIGH_SPEED,
-      stagnation: RL_CONFIG.REWARD_STAGNATION,
-      velocityTowardsTarget: RL_CONFIG.REWARD_VELOCITY_TOWARDS_TARGET,
+      // Secondary/Helper rewards
+      velocityTowardsTarget: 5.0,   // Guidance to help find target
+      stagnation: -5.0,             // Prevent getting stuck/hovering
+      timePenalty: -0.5,            // Urgency
       
-      // Altitude rewards/penalties
-      lowAltitude: RL_CONFIG.REWARD_LOW_ALTITUDE,
-      goodAltitude: RL_CONFIG.REWARD_GOOD_ALTITUDE,
-      highAltitude: RL_CONFIG.REWARD_HIGH_ALTITUDE,
-      veryHighAltitude: RL_CONFIG.REWARD_VERY_HIGH_ALTITUDE,
-      
-      // Time penalty
-      timePenalty: RL_CONFIG.REWARD_TIME_PENALTY,
+      // Disabled/Secondary rewards (per user request)
+      highSpeed: 0,
+      lowAltitude: 0,
+      goodAltitude: 0,
+      highAltitude: 0,
+      veryHighAltitude: 0,
     };
     
     // Track previous positions for stagnation detection
