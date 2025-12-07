@@ -1,8 +1,12 @@
 /**
  * DronePhysics - handles drone movement, collision detection, and physics simulation
+ * 
+ * Uses velocity setpoint control: RL agent outputs target velocity, 
+ * internal PD controller handles thrust generation.
  */
 import { DRONE } from '../config.js';
 import { CollisionSystem } from '../collision/index.js';
+import { VelocityController } from './VelocityController.js';
 
 export class DronePhysics {
   constructor() {
@@ -19,10 +23,8 @@ export class DronePhysics {
     // Facing direction (yaw only)
     this.yaw = 0;
     
-    // Control inputs in LOCAL coordinates (-1 to 1)
-    this.thrustX = 0;  // Forward/Back: negative=back, positive=forward
-    this.thrustY = 0;  // Strafe: negative=left, positive=right
-    this.thrustZ = 0;  // Vertical: negative=down, positive=up
+    // Velocity controller (converts setpoints to thrust)
+    this.velocityController = new VelocityController();
     
     // Stats
     this.distanceTraveled = 0;
@@ -42,11 +44,6 @@ export class DronePhysics {
     
     // Legacy collision checker reference
     this.collisionChecker = null;
-    
-    // Performance logging
-    this.perfLog = { currentCheck: 0, swept: 0, mesh: 0 };
-    this.perfLogCounter = 0;
-    this.perfLogInterval = 60;
   }
   
   /**
@@ -95,12 +92,24 @@ export class DronePhysics {
   }
   
   /**
-   * Update drone physics with swept collision detection
+   * Set velocity setpoint (main control interface)
+   * @param {number} vx - Target X velocity normalized [-1, 1] → [-MAX_SPEED, MAX_SPEED]
+   * @param {number} vy - Target Y velocity normalized [-1, 1]
+   * @param {number} vz - Target Z velocity normalized [-1, 1]
+   */
+  setVelocitySetpoint(vx, vy, vz) {
+    this.velocityController.setTargetFromAction(
+      Math.max(-1, Math.min(1, vx)),
+      Math.max(-1, Math.min(1, vy)),
+      Math.max(-1, Math.min(1, vz))
+    );
+  }
+  
+  /**
+   * Update drone physics with velocity control
    * @returns {Object} - { moved: boolean, dx, dy, dz } for mesh update
    */
   update(dt) {
-    let t0, t1;
-    
     if (this.collisionFrozen) {
       this.lastCollision = true;
       return { moved: false };
@@ -110,37 +119,25 @@ export class DronePhysics {
     this.lastCollisionType = null;
     
     // Check if already in collision
-    t0 = performance.now();
     const currentCollision = this.collisionSystem.checkCollision(this.x, this.y, this.z);
-    t1 = performance.now();
-    this.perfLog.currentCheck += t1 - t0;
     
     if (currentCollision.collided) {
-      this.lastCollision = true;
-      this.lastCollisionType = currentCollision.type;
-      this.collisionFrozen = true;
-      this.vx = 0;
-      this.vy = 0;
-      this.vz = 0;
-      
-      if (this.onCollision) {
-        this.onCollision(currentCollision.type);
-      }
+      this.handleCollision(currentCollision.type);
       return { moved: false };
     }
     
-    // DEAD SIMPLE: thrust directly maps to world axes
-    // thrustX → world X acceleration
-    // thrustY → world Y acceleration (up/down)
-    // thrustZ → world Z acceleration
-    const worldAccelX = this.thrustX * DRONE.MAX_ACCELERATION;
-    const worldAccelY = this.thrustY * DRONE.MAX_ACCELERATION;
-    const worldAccelZ = this.thrustZ * DRONE.MAX_ACCELERATION;
+    // Get thrust from velocity controller
+    const thrust = this.velocityController.computeThrust(this.vx, this.vy, this.vz);
     
-    // Apply acceleration
-    this.vx += worldAccelX * dt;
-    this.vy += worldAccelY * dt;
-    this.vz += worldAccelZ * dt;
+    // Apply thrust as acceleration
+    const accelX = thrust.thrustX * DRONE.MAX_ACCELERATION;
+    const accelY = thrust.thrustY * DRONE.MAX_ACCELERATION;
+    const accelZ = thrust.thrustZ * DRONE.MAX_ACCELERATION;
+    
+    // Update velocity
+    this.vx += accelX * dt;
+    this.vy += accelY * dt;
+    this.vz += accelZ * dt;
     
     // Apply drag
     const drag = DRONE.DRAG_COEFFICIENT;
@@ -169,25 +166,13 @@ export class DronePhysics {
     
     // Swept collision detection
     if (moveDistance > 0.0001) {
-      t0 = performance.now();
       const sweptResult = this.collisionSystem.checkSweptCollision(
         this.x, this.y, this.z,
         this.x + dx, this.y + dy, this.z + dz
       );
-      t1 = performance.now();
-      this.perfLog.swept += t1 - t0;
       
       if (sweptResult.collided) {
-        this.lastCollision = true;
-        this.lastCollisionType = sweptResult.type;
-        this.collisionFrozen = true;
-        this.vx = 0;
-        this.vy = 0;
-        this.vz = 0;
-        
-        if (this.onCollision) {
-          this.onCollision(sweptResult.type);
-        }
+        this.handleCollision(sweptResult.type);
         return { moved: false };
       }
     }
@@ -198,19 +183,23 @@ export class DronePhysics {
     this.z += dz;
     this.distanceTraveled += moveDistance;
     
-    // Log performance
-    this.perfLogCounter++;
-    if (this.perfLogCounter % this.perfLogInterval === 0) {
-      const n = this.perfLogInterval;
-      console.log(`[PERF DronePhysics] Avg over ${n}:`,
-        `currentCheck=${(this.perfLog.currentCheck / n).toFixed(2)}ms`,
-        `swept=${(this.perfLog.swept / n).toFixed(2)}ms`
-      );
-      this.perfLog.currentCheck = 0;
-      this.perfLog.swept = 0;
-    }
-    
     return { moved: true, dx, dy, dz };
+  }
+  
+  /**
+   * Handle collision event
+   */
+  handleCollision(type) {
+    this.lastCollision = true;
+    this.lastCollisionType = type;
+    this.collisionFrozen = true;
+    this.vx = 0;
+    this.vy = 0;
+    this.vz = 0;
+    
+    if (this.onCollision) {
+      this.onCollision(type);
+    }
   }
   
   /**
@@ -253,32 +242,16 @@ export class DronePhysics {
   }
   
   /**
-   * Set control inputs
-   */
-  setControls(thrustX, thrustY, thrustZ) {
-    this.thrustX = Math.max(-1, Math.min(1, thrustX));
-    this.thrustY = Math.max(-1, Math.min(1, thrustY));
-    this.thrustZ = Math.max(-1, Math.min(1, thrustZ));
-  }
-  
-  /**
    * Get velocity in LOCAL coordinates (relative to drone facing)
-   * Returns: x = forward/back, y = right/left, z = up/down
    */
   getLocalVelocity() {
-    // Transform world velocity to local coordinates
-    // Forward direction in world: (sin(yaw), 0, cos(yaw))
-    // Right direction in world: (cos(yaw), 0, -sin(yaw))
     const cosYaw = Math.cos(this.yaw);
     const sinYaw = Math.sin(this.yaw);
     
-    // Project world velocity onto local axes
-    // Forward = dot(worldVel, forwardDir) = vx*sin(yaw) + vz*cos(yaw)
-    // Right = dot(worldVel, rightDir) = vx*cos(yaw) - vz*sin(yaw)
     return {
-      x: this.vx * sinYaw + this.vz * cosYaw,   // Forward/back
-      y: this.vx * cosYaw - this.vz * sinYaw,   // Right/left
-      z: this.vy,                                // Up/down (unchanged)
+      x: this.vx * sinYaw + this.vz * cosYaw,
+      y: this.vx * cosYaw - this.vz * sinYaw,
+      z: this.vy,
     };
   }
   
@@ -294,13 +267,8 @@ export class DronePhysics {
   
   /**
    * Transform world coordinates to drone-local coordinates
-   * Returns: x = right, y = up, z = forward (relative to drone facing)
-   * 
-   * Drone forward direction in world: (sin(yaw), 0, cos(yaw))
-   * Drone right direction in world: (cos(yaw), 0, -sin(yaw))
    */
   worldToLocal(worldX, worldY, worldZ) {
-    // Vector from drone to target in world coordinates
     const dx = worldX - this.x;
     const dy = worldY - this.y;
     const dz = worldZ - this.z;
@@ -308,13 +276,10 @@ export class DronePhysics {
     const cosYaw = Math.cos(this.yaw);
     const sinYaw = Math.sin(this.yaw);
     
-    // Project onto local axes:
-    // Forward (local z) = dot(delta, forwardDir) = dx*sin(yaw) + dz*cos(yaw)
-    // Right (local x) = dot(delta, rightDir) = dx*cos(yaw) - dz*sin(yaw)
     return {
-      x: dx * cosYaw - dz * sinYaw,   // Right component
-      y: dy,                           // Up component (unchanged)
-      z: dx * sinYaw + dz * cosYaw,   // Forward component
+      x: dx * cosYaw - dz * sinYaw,
+      y: dy,
+      z: dx * sinYaw + dz * cosYaw,
     };
   }
   
@@ -329,14 +294,12 @@ export class DronePhysics {
     this.vy = 0;
     this.vz = 0;
     this.yaw = 0;
-    this.thrustX = 0;
-    this.thrustY = 0;
-    this.thrustZ = 0;
     this.distanceTraveled = 0;
     this.maxSpeedReached = 0;
     this.lastCollision = false;
     this.lastCollisionType = null;
     this.collisionFrozen = false;
+    this.velocityController.reset();
   }
   
   hadCollision() {
@@ -351,4 +314,3 @@ export class DronePhysics {
     return this.collisionSystem;
   }
 }
-

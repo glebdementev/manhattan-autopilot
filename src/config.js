@@ -65,16 +65,6 @@ export const SIMULATION = {
   RENDER_FPS: 60,         // Target render framerate
 };
 
-// Autopilot neural network
-export const AUTOPILOT = {
-  // Simple: just target direction (3)
-  INPUT_SIZE: 3,
-  HIDDEN_LAYERS: [64, 64],  // Larger network
-  OUTPUT_SIZE: 3,           // [thrustX, thrustY, thrustZ] = world axes
-  LEARNING_RATE: 0.001,
-  BATCH_SIZE: 64,
-};
-
 // Controller
 export const CONTROLLER = {
   TARGET_SPEED: 5,        // Target cruising speed in m/s

@@ -134,15 +134,15 @@ export function updateObservationDisplay(elements, obsData) {
     elements.obsZenith.className = getDistanceClass(zenith);
   }
   
-  // Velocity (local)
-  if (elements.obsVelForward) {
-    elements.obsVelForward.textContent = obsData.localVelocity.forward.toFixed(1);
+  // Velocity (world)
+  if (elements.obsVelForward && obsData.velocity) {
+    elements.obsVelForward.textContent = obsData.velocity.vx.toFixed(1);
   }
-  if (elements.obsVelRight) {
-    elements.obsVelRight.textContent = obsData.localVelocity.right.toFixed(1);
+  if (elements.obsVelRight && obsData.velocity) {
+    elements.obsVelRight.textContent = obsData.velocity.vy.toFixed(1);
   }
-  if (elements.obsVelUp) {
-    elements.obsVelUp.textContent = obsData.localVelocity.up.toFixed(1);
+  if (elements.obsVelUp && obsData.velocity) {
+    elements.obsVelUp.textContent = obsData.velocity.vz.toFixed(1);
   }
 }
 

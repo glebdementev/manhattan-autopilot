@@ -1,5 +1,5 @@
 /**
- * DroneState - provides state access and coordinate transformations
+ * DroneState - provides state access for RL/autopilot
  */
 import { DRONE } from '../config.js';
 
@@ -14,7 +14,6 @@ export class DroneState {
   getState() {
     const p = this.physics;
     const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy + p.vz * p.vz);
-    const localVel = p.getLocalVelocity();
     
     return {
       // World position
@@ -25,25 +24,14 @@ export class DroneState {
       vx: p.vx,
       vy: p.vy,
       vz: p.vz,
-      // Local velocity (relative to drone facing)
-      localVx: localVel.x,
-      localVy: localVel.y,
-      localVz: localVel.z,
       // Speed
       speed: speed,
       normalizedSpeed: speed / DRONE.MAX_SPEED,
       // Orientation
       yaw: p.yaw,
-      // Current controls
-      thrustX: p.thrustX,
-      thrustY: p.thrustY,
-      thrustZ: p.thrustZ,
     };
   }
   
-  /**
-   * Get position
-   */
   getPosition() {
     return {
       x: this.physics.x,
@@ -52,9 +40,6 @@ export class DroneState {
     };
   }
   
-  /**
-   * Get velocity
-   */
   getVelocity() {
     return {
       x: this.physics.vx,
@@ -63,33 +48,20 @@ export class DroneState {
     };
   }
   
-  /**
-   * Get speed
-   */
   getSpeed() {
     const p = this.physics;
     return Math.sqrt(p.vx * p.vx + p.vy * p.vy + p.vz * p.vz);
   }
   
-  /**
-   * Get yaw
-   */
   getYaw() {
     return this.physics.yaw;
   }
   
-  /**
-   * Get distance traveled
-   */
   getDistanceTraveled() {
     return this.physics.distanceTraveled;
   }
   
-  /**
-   * Get max speed reached
-   */
   getMaxSpeedReached() {
     return this.physics.maxSpeedReached;
   }
 }
-

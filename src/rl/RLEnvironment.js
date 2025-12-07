@@ -1,15 +1,15 @@
 /**
  * Reinforcement Learning Environment for Drone Navigation
  * 
- * ALL observations and actions are in LOCAL coordinates (relative to drone facing)
+ * Action space: Velocity setpoints [-1, 1] → [-MAX_SPEED, MAX_SPEED]
+ * The drone's internal PD controller handles inertia compensation.
  * 
- * CURRICULUM LEARNING: Starts with easy targets, gradually increases difficulty.
- * Key: On failure, retry the SAME target (many retries allowed).
- * 
- * FIXED VALUES:
- * - Drone spawn height: 1.5m above ground
- * - Target height: 2m above ground
- * - Target size: 2m diameter (1m radius)
+ * Observation space (12 values):
+ * - [0-2] Target direction (normalized)
+ * - [3-5] Current velocity (normalized)
+ * - [6-9] 4 closest obstacle distances
+ * - [10] Nadir distance
+ * - [11] Zenith distance
  */
 
 import { LIDAR } from '../config.js';
@@ -22,9 +22,8 @@ import {
   CurriculumManager,
 } from './environment/index.js';
 
-// Fixed spawn and target heights
-const FIXED_SPAWN_HEIGHT = 1.5;  // Drone spawns 1.5m above ground
-const FIXED_TARGET_HEIGHT = 1.0; // Target center is always 1m above ground
+const FIXED_SPAWN_HEIGHT = 1.5;
+const FIXED_TARGET_HEIGHT = 1.0;
 
 export class RLEnvironment {
   constructor(drone, lidar, forestGenerator, sceneManager) {
@@ -33,7 +32,7 @@ export class RLEnvironment {
     this.forest = forestGenerator;
     this.sceneManager = sceneManager;
     
-    // Initialize components
+    // Components
     this.observationBuilder = new ObservationBuilder();
     this.rewardCalculator = new RewardCalculator();
     this.targetManager = new TargetManager(forestGenerator, sceneManager);
@@ -41,28 +40,13 @@ export class RLEnvironment {
     this.episodeStats = new EpisodeStats();
     this.curriculumManager = new CurriculumManager();
     
-    // Observation and action space sizes
+    // Space sizes
     this.observationSize = this.observationBuilder.getSize();
-    this.actionSize = 3; // thrustX, thrustY, thrustZ
+    this.actionSize = 3; // velocity setpoints [vx, vy, vz]
     
-    // Raycast targets for lidar
-    this.raycastTargets = [];
-    
-    // Previous distance for reward calculation
-    this.previousDistanceToTarget = 0;
-    
-    // Store spawn position for retrying same scenario
+    // State
     this.lastSpawnPosition = null;
-    
-    // Last episode result for curriculum updates
     this.lastEpisodeSuccess = false;
-  }
-  
-  /**
-   * Set raycast targets for lidar scanning
-   */
-  setRaycastTargets(targets) {
-    this.raycastTargets = targets;
   }
   
   /**
@@ -78,30 +62,24 @@ export class RLEnvironment {
   
   /**
    * Reset environment for new episode
-   * Uses curriculum learning: keeps same target on failure (many retries)
    */
   reset() {
-    // Reset drone state completely
     this.drone.reset();
     
-    // Update curriculum based on last episode result
-    const curriculumResult = this.curriculumManager.recordEpisodeResult(this.lastEpisodeSuccess);
-    
-    // Target radius is FIXED (from curriculum manager, always 1.0 = 2m diameter)
+    // Update curriculum
+    this.curriculumManager.recordEpisodeResult(this.lastEpisodeSuccess);
     this.targetManager.setRadius(this.curriculumManager.getTargetRadius());
     
-    // Determine spawn position
+    // Spawn position
     let spawnPos;
     if (this.curriculumManager.shouldKeepSameTarget() && this.lastSpawnPosition) {
-      // Retry same scenario - use exact same spawn position
       spawnPos = this.lastSpawnPosition;
     } else {
-      // New scenario - generate new spawn position
       const baseSpawn = this.forest.findSpawnPosition();
       const groundY = this.forest.getTerrainHeight(baseSpawn.x, baseSpawn.z);
       spawnPos = {
         x: baseSpawn.x,
-        y: groundY + FIXED_SPAWN_HEIGHT, // FIXED: 1.5m above ground
+        y: groundY + FIXED_SPAWN_HEIGHT,
         z: baseSpawn.z,
       };
       this.lastSpawnPosition = { ...spawnPos };
@@ -109,9 +87,8 @@ export class RLEnvironment {
     
     this.drone.setPosition(spawnPos.x, spawnPos.y, spawnPos.z);
     
-    // Generate or reuse target
+    // Target
     if (this.curriculumManager.shouldKeepSameTarget()) {
-      // Reuse stored target
       const storedTarget = this.curriculumManager.getCurrentTarget();
       if (storedTarget) {
         this.targetManager.setPosition(storedTarget.x, storedTarget.y, storedTarget.z);
@@ -119,61 +96,43 @@ export class RLEnvironment {
         this.generateCurriculumTarget();
       }
     } else {
-      // Generate new target based on curriculum
       this.generateCurriculumTarget();
     }
     
-    // Get target (no longer rotating drone to face it - using world coords)
     const target = this.targetManager.getPosition();
-    // Reset yaw to 0 (facing -Z direction)
     this.drone.setYaw(0);
     this.drone.updateMesh();
     
     // Reset episode state
     this.episodeStats.startEpisode();
     this.rewardCalculator.reset();
-    this.previousDistanceToTarget = this.getDistanceToTarget();
     this.lastEpisodeSuccess = false;
     
-    // Update lidar target info
+    // Update lidar
     this.lidar.setTargetPosition(target.x, target.y, target.z);
     this.lidar.setTargetVisible(this.canSeeTarget());
-    
-    // Initial lidar scan
     this.lidar.scan();
     
     return this.getObservation();
   }
   
   /**
-   * Generate target based on curriculum difficulty
-   * Target is always at FIXED_TARGET_HEIGHT (2m) above ground
+   * Generate target based on curriculum
    */
   generateCurriculumTarget() {
     const state = this.drone.getState();
     const range = this.curriculumManager.getTargetDistanceRange();
     
-    // Generate target within curriculum distance range
-    // Use forest's method but override the Y coordinate
     const target = this.forest.generateTargetPosition(
       state.x, state.z,
       range.min, range.max
     );
     
-    // Override Y to be FIXED height above ground at target position
     const groundY = this.forest.getTerrainHeight(target.x, target.z);
     const fixedY = groundY + FIXED_TARGET_HEIGHT;
     
     this.targetManager.setPosition(target.x, fixedY, target.z);
     this.curriculumManager.setCurrentTarget(target.x, fixedY, target.z);
-  }
-  
-  /**
-   * Generate a new target position (legacy method)
-   */
-  generateTarget() {
-    this.generateCurriculumTarget();
-    this.previousDistanceToTarget = this.getDistanceToTarget();
   }
   
   /**
@@ -185,30 +144,29 @@ export class RLEnvironment {
   
   /**
    * Take a step in the environment
+   * Action: [vx, vy, vz] velocity setpoints in [-1, 1]
    */
   step(action, dt) {
-    // Apply action
-    const thrustX = Math.max(-1, Math.min(1, action[0]));
-    const thrustY = Math.max(-1, Math.min(1, action[1]));
-    const thrustZ = Math.max(-1, Math.min(1, action[2]));
+    // Apply velocity setpoint
+    const vx = Math.max(-1, Math.min(1, action[0]));
+    const vy = Math.max(-1, Math.min(1, action[1]));
+    const vz = Math.max(-1, Math.min(1, action[2]));
     
-    this.drone.setControls(thrustX, thrustY, thrustZ);
+    this.drone.setControls(vx, vy, vz);
     
-    // Store pre-update state
+    // Store pre-update distance
     const prevDist = this.getDistanceToTarget();
     
-    // Update drone physics
+    // Update physics
     this.drone.update(dt);
     
-    // Update lidar target info
+    // Update lidar
     const target = this.targetManager.getPosition();
     this.lidar.setTargetPosition(target.x, target.y, target.z);
     this.lidar.setTargetVisible(this.canSeeTarget());
-    
-    // Scan lidar
     this.lidar.scan();
     
-    // Calculate reward (now includes proximity penalty)
+    // Calculate reward
     const { reward, breakdown: rewardBreakdown } = this.calculateReward(prevDist);
     this.episodeStats.recordStep(reward);
     
@@ -223,7 +181,7 @@ export class RLEnvironment {
     // Get new observation
     const observation = this.getObservation();
     
-    // Update stats on episode end
+    // Update on episode end
     if (done) {
       this.lastEpisodeSuccess = info.success === true;
       this.episodeStats.endEpisode(info.success);
@@ -233,46 +191,38 @@ export class RLEnvironment {
   }
   
   /**
-   * Get current observation - uses ObservationBuilder with full lidar data
+   * Get current observation
    */
   getObservation() {
     const state = this.drone.getState();
     const target = this.targetManager.getPosition();
-    
     return this.observationBuilder.build(state, this.lidar, target);
   }
   
   /**
-   * Calculate reward for current step
-   * Includes proximity penalty from lidar distances
+   * Calculate reward
    */
   calculateReward(prevDist) {
-    const currentDist = this.getDistanceToTarget();
-    const minLidarDist = this.lidar.getMinDistance();
-    const nadirDistance = this.lidar.getNadirDistance();
-    const zenithDistance = this.lidar.getZenithDistance();
-    
     return this.rewardCalculator.calculate({
       prevDistance: prevDist,
-      currentDistance: currentDist,
+      currentDistance: this.getDistanceToTarget(),
       targetRadius: this.targetManager.getRadius(),
       hadCollision: this.drone.hadCollision(),
-      minLidarDist,
-      nadirDistance,
-      zenithDistance,
+      minLidarDist: this.lidar.getMinDistance(),
+      nadirDistance: this.lidar.getNadirDistance(),
+      zenithDistance: this.lidar.getZenithDistance(),
     });
   }
   
   /**
-   * Check if episode should terminate
+   * Check termination
    */
   checkTermination() {
     const state = this.drone.getState();
-    const distToTarget = this.getDistanceToTarget();
     const stats = this.episodeStats.getStats();
     
     return this.terminationChecker.check({
-      distToTarget,
+      distToTarget: this.getDistanceToTarget(),
       targetRadius: this.targetManager.getRadius(),
       hadCollision: this.drone.hadCollision(),
       collisionType: this.drone.getLastCollisionType(),
@@ -291,39 +241,33 @@ export class RLEnvironment {
   }
   
   /**
-   * Get direction to target in drone-local coordinates
-   */
-  getTargetDirection() {
-    const target = this.targetManager.getPosition();
-    const local = this.drone.worldToLocal(target.x, target.y, target.z);
-    const dist = Math.sqrt(local.x * local.x + local.y * local.y + local.z * local.z);
-    
-    if (dist < 0.001) return { x: 0, y: 0, z: 1 };
-    
-    return {
-      x: local.x / dist,
-      y: local.y / dist,
-      z: local.z / dist,
-    };
-  }
-  
-  /**
-   * Get direction to target in world coordinates
-   */
-  getTargetDirectionWorld() {
-    const state = this.drone.getState();
-    return this.targetManager.getDirectionFrom(state.x, state.y, state.z);
-  }
-  
-  /**
-   * Check if drone can see the target
+   * Check if drone can see target
    */
   canSeeTarget() {
     const dist = this.getDistanceToTarget();
     if (dist < 3) return true;
+    return this.lidar.getForwardMinDistance() > dist * 0.8;
+  }
+  
+  /**
+   * Get direction to target in world coordinates (normalized)
+   */
+  getTargetDirection() {
+    const state = this.drone.getState();
+    const target = this.targetManager.getPosition();
     
-    const forwardMinDist = this.lidar.getForwardMinDistance();
-    return forwardMinDist > dist * 0.8;
+    const dx = target.x - state.x;
+    const dy = target.y - state.y;
+    const dz = target.z - state.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    
+    if (dist < 0.001) return { x: 0, y: 0, z: 1 };
+    
+    return {
+      x: dx / dist,
+      y: dy / dist,
+      z: dz / dist,
+    };
   }
   
   /**
@@ -337,7 +281,7 @@ export class RLEnvironment {
   }
   
   /**
-   * Get curriculum manager (for external access)
+   * Get curriculum manager
    */
   getCurriculumManager() {
     return this.curriculumManager;
@@ -359,11 +303,11 @@ export class RLEnvironment {
       continuous: true,
       low: [-1, -1, -1],
       high: [1, 1, 1],
-      names: ['thrustX', 'thrustY', 'thrustZ'],
+      names: ['velocityX', 'velocityY', 'velocityZ'],
     };
   }
   
-  // Legacy getters for backwards compatibility
+  // Getters for compatibility
   get targetX() { return this.targetManager.getPosition().x; }
   get targetY() { return this.targetManager.getPosition().y; }
   get targetZ() { return this.targetManager.getPosition().z; }

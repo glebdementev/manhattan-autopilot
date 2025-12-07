@@ -1,5 +1,6 @@
 /**
  * InputController - Handles keyboard input for manual drone control
+ * Outputs velocity setpoints [-1, 1] (same as RL agent)
  */
 export class InputController {
   constructor() {
@@ -15,16 +16,10 @@ export class InputController {
     this.onReset = null;
   }
 
-  /**
-   * Set reset callback
-   */
   setOnReset(callback) {
     this.onReset = callback;
   }
 
-  /**
-   * Handle key down event
-   */
   handleKeyDown(key) {
     switch (key) {
       case 'w': case 'arrowup':
@@ -51,9 +46,6 @@ export class InputController {
     }
   }
 
-  /**
-   * Handle key up event
-   */
   handleKeyUp(key) {
     switch (key) {
       case 'w': case 'arrowup':
@@ -78,28 +70,26 @@ export class InputController {
   }
 
   /**
-   * Get current action from input state
-   * @returns {number[]} [thrustX, thrustY, thrustZ]
+   * Get velocity setpoint action from input state
+   * @returns {number[]} [vx, vy, vz] velocity setpoints in [-1, 1]
    * 
-   * SIMPLE: thrust = world axis acceleration
    * Camera is at +Z looking at -Z, so:
-   * - W (forward) = -Z
-   * - A (left) = -X
-   * - Q (up) = +Y
+   * - W (forward) = -Z velocity
+   * - A (left) = -X velocity
+   * - Q (up) = +Y velocity
    */
   getAction() {
-    let thrustX = 0;  // World X axis (left/right)
-    let thrustY = 0;  // World Y axis (up/down)
-    let thrustZ = 0;  // World Z axis (forward/back)
+    let vx = 0;
+    let vy = 0;
+    let vz = 0;
     
-    if (this.input.forward) thrustZ = -0.8;  // W = forward = -Z
-    if (this.input.backward) thrustZ = 0.8;  // S = backward = +Z
-    if (this.input.left) thrustX = -0.8;     // A = left = -X
-    if (this.input.right) thrustX = 0.8;     // D = right = +X
-    if (this.input.up) thrustY = 0.8;        // Q = up = +Y
-    if (this.input.down) thrustY = -0.5;     // Z = down = -Y
+    if (this.input.forward) vz = -0.8;
+    if (this.input.backward) vz = 0.8;
+    if (this.input.left) vx = -0.8;
+    if (this.input.right) vx = 0.8;
+    if (this.input.up) vy = 0.8;
+    if (this.input.down) vy = -0.5;
     
-    return [thrustX, thrustY, thrustZ];
+    return [vx, vy, vz];
   }
 }
-

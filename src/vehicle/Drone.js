@@ -1,14 +1,10 @@
 /**
- * Drone - flying box with 6-axis movement
+ * Drone - flying vehicle with velocity setpoint control
  * 
- * Composes physics, mesh, and state modules for clean separation of concerns.
- * 
- * Physics model:
- * - Controls are in LOCAL coordinates (relative to drone facing)
- * - thrustX > 0 = forward (direction drone is facing)
- * - thrustY > 0 = strafe right
- * - thrustZ > 0 = up
- * - Velocity has inertia (drag-based deceleration)
+ * Control model:
+ * - Actions are velocity setpoints [-1, 1] → [-MAX_SPEED, MAX_SPEED]
+ * - Internal PD controller handles thrust generation
+ * - RL agent doesn't need to learn physics/inertia
  */
 import { DronePhysics } from './DronePhysics.js';
 import { DroneMesh } from './DroneMesh.js';
@@ -16,15 +12,11 @@ import { DroneState } from './DroneState.js';
 
 export class Drone {
   constructor() {
-    // Core modules
     this.physics = new DronePhysics();
     this.droneMesh = new DroneMesh();
     this.droneState = new DroneState(this.physics);
     
-    // Expose mesh for scene
     this.mesh = this.droneMesh.getMesh();
-    
-    // Expose light for backwards compatibility
     this.droneLight = this.droneMesh.droneLight;
   }
   
@@ -70,13 +62,6 @@ export class Drone {
    */
   checkCollisionAtPosition(posX, posY, posZ) {
     return this.physics.checkCollisionAtPosition(posX, posY, posZ);
-  }
-  
-  /**
-   * Legacy method for backwards compatibility
-   */
-  checkCollision(newX, newY, newZ) {
-    return this.checkCollisionAtPosition(newX, newY, newZ);
   }
   
   /**
@@ -132,10 +117,13 @@ export class Drone {
   }
   
   /**
-   * Set control inputs
+   * Set velocity setpoint (main control interface)
+   * @param {number} vx - Target X velocity [-1, 1]
+   * @param {number} vy - Target Y velocity [-1, 1]
+   * @param {number} vz - Target Z velocity [-1, 1]
    */
-  setControls(thrustX, thrustY, thrustZ) {
-    this.physics.setControls(thrustX, thrustY, thrustZ);
+  setControls(vx, vy, vz) {
+    this.physics.setVelocitySetpoint(vx, vy, vz);
   }
   
   /**
@@ -196,10 +184,7 @@ export class Drone {
     this.droneMesh.setMode(mode);
   }
   
-  // ==========================================
-  // Property accessors for backwards compatibility
-  // ==========================================
-  
+  // Property accessors
   get x() { return this.physics.x; }
   set x(val) { this.physics.x = val; }
   
@@ -220,15 +205,6 @@ export class Drone {
   
   get yaw() { return this.physics.yaw; }
   set yaw(val) { this.physics.yaw = val; }
-  
-  get thrustX() { return this.physics.thrustX; }
-  set thrustX(val) { this.physics.thrustX = val; }
-  
-  get thrustY() { return this.physics.thrustY; }
-  set thrustY(val) { this.physics.thrustY = val; }
-  
-  get thrustZ() { return this.physics.thrustZ; }
-  set thrustZ(val) { this.physics.thrustZ = val; }
   
   get distanceTraveled() { return this.physics.distanceTraveled; }
   get maxSpeedReached() { return this.physics.maxSpeedReached; }

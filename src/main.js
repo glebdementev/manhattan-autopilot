@@ -310,11 +310,11 @@ class Simulation {
       nadirDist: lidar.getNadirDistance(),
       zenithDist: lidar.getZenithDistance(),
       
-      // Local velocity
-      localVelocity: {
-        forward: state.localVx || 0,
-        right: state.localVy || 0,
-        up: state.localVz || 0,
+      // World velocity (normalized)
+      velocity: {
+        vx: state.vx || 0,
+        vy: state.vy || 0,
+        vz: state.vz || 0,
       },
     };
     

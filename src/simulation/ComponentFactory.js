@@ -47,16 +47,11 @@ export class ComponentFactory {
       forestGenerator,
       components.sceneManager
     );
-    components.rlEnvironment.setRaycastTargets(raycastTargets);
     
     // RL Agent
     const obsInfo = components.rlEnvironment.getObservationSpaceInfo();
     const actInfo = components.rlEnvironment.getActionSpaceInfo();
-    console.log(`%c=== OBSERVATION SIZE: ${obsInfo.size} ===`, 'color: red; font-size: 20px; font-weight: bold');
-    console.log(`%c=== ACTION SIZE: ${actInfo.size} ===`, 'color: red; font-size: 20px; font-weight: bold');
-    if (obsInfo.size !== 3) {
-      console.error('ERROR: Observation size should be 3! Page needs refresh!');
-    }
+    console.log(`Observation size: ${obsInfo.size}, Action size: ${actInfo.size}`);
     components.rlAgent = new RLAgent(obsInfo.size, actInfo.size);
     
     // UI
