@@ -247,7 +247,8 @@ class Simulation {
     if (info.success) {
       this.ui.showSuccessSplash();
     } else if (info.reason === 'collision') {
-      const collisionType = this.drone.lastCollision ? 'obstacle' : 'terrain';
+      // Get the specific collision type from the drone
+      const collisionType = this.drone.getLastCollisionType() || 'obstacle';
       this.ui.showCollisionSplash(collisionType);
     } else if (info.reason === 'timeout') {
       this.ui.showTimeoutSplash();

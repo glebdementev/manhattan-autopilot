@@ -1,7 +1,13 @@
 /**
  * Drone - flying box with 6-axis movement
  * Simple physics model: no pitch/roll, just position-based movement
- * Includes box-based collision detection with terrain and obstacles
+ * Includes swept AABB collision detection to prevent tunneling/phasing
+ * 
+ * Collision Detection Strategy:
+ * - Uses swept AABB (Axis-Aligned Bounding Box) collision detection
+ * - Checks multiple points along movement path to prevent fast objects from phasing through thin obstacles
+ * - All obstacles are collisions: terrain, tree trunks, canopies, bushes
+ * - Being inside any mesh is also considered a collision
  */
 import * as THREE from 'three';
 import { DRONE, COLORS } from '../config.js';
@@ -42,6 +48,11 @@ export class Drone {
     this.boxHalfHeight = DRONE.SIZE * 0.35 / 2; // Half-height (Y axis)
     this.boxHalfDepth = DRONE.SIZE / 2;   // Half-depth (Z axis)
     this.lastCollision = false;
+    this.lastCollisionType = null;
+    
+    // Swept collision detection settings
+    // Minimum step size for swept collision (prevents tunneling)
+    this.minCollisionStepSize = Math.min(this.boxHalfWidth, this.boxHalfHeight, this.boxHalfDepth) * 0.5;
     
     // Collision callback
     this.onCollision = null;
@@ -103,7 +114,8 @@ export class Drone {
   }
 
   /**
-   * Update drone physics with collision detection
+   * Update drone physics with swept collision detection
+   * Uses continuous collision detection to prevent tunneling through obstacles
    */
   update(dt) {
     // Calculate acceleration from thrust
@@ -134,22 +146,40 @@ export class Drone {
       this.maxSpeedReached = currentSpeed;
     }
     
-    // Calculate proposed new position
+    // Calculate proposed movement
     const dx = this.vx * dt;
     const dy = this.vy * dt;
     const dz = this.vz * dt;
+    const moveDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
     
-    let newX = this.x + dx;
-    let newY = this.y + dy;
-    let newZ = this.z + dz;
-    
-    // Collision detection and response
+    // Reset collision state
     this.lastCollision = false;
+    this.lastCollisionType = null;
+    
+    // First check: Are we currently inside an obstacle? (spawn collision or phasing)
     if (this.collisionChecker) {
-      const collision = this.checkCollision(newX, newY, newZ);
+      const currentCollision = this.checkCollisionAtPosition(this.x, this.y, this.z);
+      if (currentCollision.collided) {
+        this.lastCollision = true;
+        this.lastCollisionType = currentCollision.type;
+        
+        if (this.onCollision) {
+          this.onCollision(currentCollision.type);
+        }
+        return;
+      }
+    }
+    
+    // Swept collision detection: check multiple points along movement path
+    if (this.collisionChecker && moveDistance > 0.001) {
+      const collision = this.checkSweptCollision(
+        this.x, this.y, this.z,
+        this.x + dx, this.y + dy, this.z + dz
+      );
       
       if (collision.collided) {
         this.lastCollision = true;
+        this.lastCollisionType = collision.type;
         
         // Trigger collision callback (for restart)
         if (this.onCollision) {
@@ -161,13 +191,13 @@ export class Drone {
       }
     }
     
-    // Update position
-    this.x = newX;
-    this.y = newY;
-    this.z = newZ;
+    // No collision - update position
+    this.x += dx;
+    this.y += dy;
+    this.z += dz;
     
     // Track distance
-    this.distanceTraveled += Math.sqrt(dx * dx + dy * dy + dz * dz);
+    this.distanceTraveled += moveDistance;
     
     // Update yaw to face movement direction (if moving horizontally)
     const horizontalSpeed = Math.sqrt(this.vx * this.vx + this.vz * this.vz);
@@ -185,32 +215,73 @@ export class Drone {
   }
   
   /**
-   * Check collision at proposed position using box-based collision
-   * Returns collision info with type of collision
+   * Swept collision detection - checks multiple points along movement path
+   * This prevents fast-moving objects from tunneling through thin obstacles
    */
-  checkCollision(newX, newY, newZ) {
+  checkSweptCollision(startX, startY, startZ, endX, endY, endZ) {
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const dz = endZ - startZ;
+    const moveDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    
+    // Determine number of steps based on movement distance and minimum step size
+    // More steps = more accurate but slower
+    const numSteps = Math.max(1, Math.ceil(moveDistance / this.minCollisionStepSize));
+    
+    // Check collision at each point along the path
+    for (let i = 1; i <= numSteps; i++) {
+      const t = i / numSteps;
+      const checkX = startX + dx * t;
+      const checkY = startY + dy * t;
+      const checkZ = startZ + dz * t;
+      
+      const collision = this.checkCollisionAtPosition(checkX, checkY, checkZ);
+      if (collision.collided) {
+        return collision;
+      }
+    }
+    
+    return { collided: false, type: null };
+  }
+  
+  /**
+   * Check collision at a specific position using AABB collision detection
+   * Returns collision info with type of collision
+   * 
+   * ALL obstacles cause collision:
+   * - terrain (ground)
+   * - trunk (tree trunk)
+   * - canopy (tree foliage/crown)
+   * - bush
+   */
+  checkCollisionAtPosition(posX, posY, posZ) {
     const result = {
       collided: false,
-      type: null, // 'terrain', 'tree', 'bush'
+      type: null, // 'terrain', 'trunk', 'canopy', 'bush'
     };
     
     if (!this.collisionChecker) return result;
     
-    // Drone bounding box at new position
-    const droneMinX = newX - this.boxHalfWidth;
-    const droneMaxX = newX + this.boxHalfWidth;
-    const droneMinY = newY - this.boxHalfHeight;
-    const droneMaxY = newY + this.boxHalfHeight;
-    const droneMinZ = newZ - this.boxHalfDepth;
-    const droneMaxZ = newZ + this.boxHalfDepth;
+    // Drone bounding box at position
+    const droneMinX = posX - this.boxHalfWidth;
+    const droneMaxX = posX + this.boxHalfWidth;
+    const droneMinY = posY - this.boxHalfHeight;
+    const droneMaxY = posY + this.boxHalfHeight;
+    const droneMinZ = posZ - this.boxHalfDepth;
+    const droneMaxZ = posZ + this.boxHalfDepth;
     
-    // Check terrain collision at all 4 corners and center of the drone box
+    // Check terrain collision at multiple points for accurate ground detection
+    // Check all 4 corners, center, and edge midpoints (9 points total)
     const checkPoints = [
-      { x: newX, z: newZ },                           // Center
+      { x: posX, z: posZ },                           // Center
       { x: droneMinX, z: droneMinZ },                 // Corner 1
       { x: droneMaxX, z: droneMinZ },                 // Corner 2
       { x: droneMinX, z: droneMaxZ },                 // Corner 3
       { x: droneMaxX, z: droneMaxZ },                 // Corner 4
+      { x: posX, z: droneMinZ },                      // Edge midpoint 1
+      { x: posX, z: droneMaxZ },                      // Edge midpoint 2
+      { x: droneMinX, z: posZ },                      // Edge midpoint 3
+      { x: droneMaxX, z: posZ },                      // Edge midpoint 4
     ];
     
     for (const point of checkPoints) {
@@ -222,7 +293,8 @@ export class Drone {
       }
     }
     
-    // Check obstacle collisions (trees, bushes) using box-cylinder intersection
+    // Check ALL obstacle collisions (trunks, canopies, bushes)
+    // Every obstacle type is a collision - no exceptions
     const obstacles = this.collisionChecker.getObstacles();
     
     for (const obstacle of obstacles) {
@@ -231,12 +303,20 @@ export class Drone {
         obstacle
       )) {
         result.collided = true;
-        result.type = obstacle.type || 'tree';
+        result.type = obstacle.type || 'obstacle';
         return result;
       }
     }
     
     return result;
+  }
+  
+  /**
+   * Legacy method for backwards compatibility
+   * @deprecated Use checkCollisionAtPosition instead
+   */
+  checkCollision(newX, newY, newZ) {
+    return this.checkCollisionAtPosition(newX, newY, newZ);
   }
   
   /**
@@ -267,6 +347,14 @@ export class Drone {
    */
   hadCollision() {
     return this.lastCollision;
+  }
+  
+  /**
+   * Get the type of the last collision (if any)
+   * @returns {string|null} - 'terrain', 'trunk', 'canopy', 'bush', or null
+   */
+  getLastCollisionType() {
+    return this.lastCollisionType;
   }
 
   /**
@@ -370,6 +458,8 @@ export class Drone {
     this.thrustZ = 0;
     this.distanceTraveled = 0;
     this.maxSpeedReached = 0;
+    this.lastCollision = false;
+    this.lastCollisionType = null;
     this.updateMesh();
   }
 

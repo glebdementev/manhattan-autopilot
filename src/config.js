@@ -67,7 +67,7 @@ export const SIMULATION = {
 
 // Autopilot neural network - ADJUSTED for new LiDAR size
 export const AUTOPILOT = {
-  INPUT_SIZE: 16 * 4 + 6, // LiDAR rays (64) + [vx, vy, vz, target_dx, target_dy, target_dz]
+  INPUT_SIZE: 16 * 4 + 2 + 6, // LiDAR grid rays (64) + nadir/zenith (2) + [vx, vy, vz, target_dx, target_dy, target_dz]
   HIDDEN_LAYERS: [64, 32],  // Smaller network
   OUTPUT_SIZE: 3,         // [thrust_x, thrust_y, thrust_z]
   LEARNING_RATE: 0.001,
@@ -126,22 +126,41 @@ export const RL_CONFIG = {
   MAX_EPISODE_STEPS: 2000,      // Max steps per episode
   MAX_TARGET_DISTANCE: 100,     // Max distance for normalization
   
-  // Reward shaping
+  // ===========================================
+  // REWARD SHAPING
+  // ===========================================
+  
+  // Goal rewards (Primary motivation)
   REWARD_TARGET_REACHED: 100,   // Big bonus for reaching target
-  REWARD_COLLISION: -50,        // Penalty for collision
-  REWARD_TIME_PENALTY: -0.01,   // Small penalty per step (encourages speed)
-  REWARD_DISTANCE_PROGRESS: 2.0, // Reward for getting closer to target
-  REWARD_OBSTACLE_PROXIMITY: -0.5, // Penalty for being close to obstacles
-  REWARD_VELOCITY_TOWARDS_TARGET: 0.1, // Bonus for moving towards target
-  REWARD_GOOD_ALTITUDE: 0.02,   // Small bonus for maintaining good altitude
+  REWARD_DISTANCE_PROGRESS: 2.5, // Reward for getting closer to target (per meter)
+  REWARD_DISTANCE_REGRESS: 3.0, // Penalty multiplier for moving away from target (stronger than progress)
   
-  // Obstacle avoidance
-  OBSTACLE_DANGER_DISTANCE: 5,  // Distance at which obstacles become dangerous
+  // Collision/Safety penalties
+  REWARD_COLLISION: -100,       // Heavy penalty for collision (terminal event)
+  REWARD_OBSTACLE_PROXIMITY: -0.8, // Base penalty for being close to obstacles
+  OBSTACLE_DANGER_DISTANCE: 6,  // Distance at which obstacles become dangerous (meters)
+  OBSTACLE_CLOSE_DISTANCE: 2.5, // Distance at which exponential penalty kicks in (meters)
   
-  // Neural network architecture
+  // Speed rewards (Encourages efficient navigation)
+  REWARD_HIGH_SPEED: 0.15,      // Bonus for maintaining high speed
+  REWARD_STAGNATION: -0.3,      // Penalty for staying in one place (anti-hovering)
+  REWARD_VELOCITY_TOWARDS_TARGET: 0.2, // Bonus for moving towards target
+  
+  // Altitude rewards (Encourages low flight)
+  REWARD_LOW_ALTITUDE: 0.08,    // Bonus for flying low (1.5-4m above ground)
+  REWARD_GOOD_ALTITUDE: 0.03,   // Smaller bonus for moderate altitude (4-8m)
+  
+  // Time penalty
+  REWARD_TIME_PENALTY: -0.02,   // Small penalty per step (encourages fast completion)
+  
+  // ===========================================
+  // NEURAL NETWORK
+  // ===========================================
   HIDDEN_UNITS: [128, 64, 32],  // Hidden layer sizes
   
-  // Training hyperparameters
+  // ===========================================
+  // TRAINING HYPERPARAMETERS
+  // ===========================================
   LEARNING_RATE: 0.0003,        // Learning rate for optimizer
   POLICY_LEARNING_RATE: 0.1,    // Learning rate for policy updates
   GAMMA: 0.99,                  // Discount factor
@@ -150,13 +169,17 @@ export const RL_CONFIG = {
   BUFFER_SIZE: 10000,           // Experience replay buffer size
   MIN_BUFFER_SIZE: 500,         // Minimum buffer size before training
   
-  // Exploration
+  // ===========================================
+  // EXPLORATION
+  // ===========================================
   INITIAL_EXPLORATION: 0.5,     // Initial exploration rate
   EXPLORATION_DECAY: 0.9995,    // Exploration decay per training step
   MIN_EXPLORATION: 0.05,        // Minimum exploration rate
   ACTION_NOISE: 0.3,            // Noise added to actions during exploration
   
-  // Training control
+  // ===========================================
+  // TRAINING CONTROL
+  // ===========================================
   TRAIN_INTERVAL: 10,           // Train every N steps
   EPISODES_PER_SCENE: 5,        // Regenerate scene every N episodes
   AUTO_TRAIN: true,             // Whether to train automatically
