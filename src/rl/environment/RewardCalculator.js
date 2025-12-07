@@ -4,24 +4,26 @@
  * 
  * Design Philosophy for Teaching Obstacle-Avoiding Navigation:
  * 
- * 1. GOAL-SEEKING (Primary):
+ * 1. COLLISION AVOIDANCE (HIGHEST PRIORITY - CRITICAL):
+ *    - CATASTROPHIC penalty for collisions - agent must learn to NEVER collide
+ *    - EXTREME graduated penalty for proximity - agent must HATE being near obstacles
+ *    - Uses multiple lidar rays to create a "force field" of fear around obstacles
+ *    - Exponential penalty scaling - the closer, the worse
+ * 
+ * 2. GOAL-SEEKING (Primary):
  *    - Strong reward for reducing distance to target
  *    - Large bonus for reaching target
  *    - Penalty for increasing distance from target
  * 
- * 2. COLLISION AVOIDANCE (Critical):
- *    - Heavy penalty for collisions (terminal)
- *    - Graduated penalty for proximity to obstacles (smooth gradient)
- *    - Exponential penalty as obstacles get very close
+ * 3. ALTITUDE CONTROL (Important):
+ *    - Bonus for flying low (more challenging, realistic)
+ *    - STRONG penalty for flying too high
+ *    - Uses nadir lidar for ground awareness
  * 
- * 3. SPEED & EFFICIENCY:
+ * 4. SPEED & EFFICIENCY:
  *    - Reward high speed (encourages efficient navigation)
  *    - Penalize staying in one place (anti-stagnation)
  *    - Small time penalty to encourage fast completion
- * 
- * 4. ALTITUDE REWARDS:
- *    - Bonus for flying low (more challenging, realistic)
- *    - Uses nadir lidar for ground awareness
  * 
  * 5. VELOCITY ALIGNMENT:
  *    - Bonus for moving towards target
@@ -39,20 +41,24 @@ export class RewardCalculator {
       distanceProgress: RL_CONFIG.REWARD_DISTANCE_PROGRESS,
       distanceRegress: RL_CONFIG.REWARD_DISTANCE_REGRESS,
       
-      // Collision/safety penalties
+      // Collision/safety penalties (CRITICAL - must HATE proximity)
       collision: RL_CONFIG.REWARD_COLLISION,
       obstacleProximity: RL_CONFIG.REWARD_OBSTACLE_PROXIMITY,
+      obstacleVeryClose: RL_CONFIG.REWARD_OBSTACLE_VERY_CLOSE,
       obstacleDangerDistance: RL_CONFIG.OBSTACLE_DANGER_DISTANCE,
       obstacleCloseDistance: RL_CONFIG.OBSTACLE_CLOSE_DISTANCE,
+      obstacleCriticalDistance: RL_CONFIG.OBSTACLE_CRITICAL_DISTANCE,
       
       // Speed rewards
       highSpeed: RL_CONFIG.REWARD_HIGH_SPEED,
       stagnation: RL_CONFIG.REWARD_STAGNATION,
       velocityTowardsTarget: RL_CONFIG.REWARD_VELOCITY_TOWARDS_TARGET,
       
-      // Altitude rewards
+      // Altitude rewards/penalties
       lowAltitude: RL_CONFIG.REWARD_LOW_ALTITUDE,
       goodAltitude: RL_CONFIG.REWARD_GOOD_ALTITUDE,
+      highAltitude: RL_CONFIG.REWARD_HIGH_ALTITUDE,
+      veryHighAltitude: RL_CONFIG.REWARD_VERY_HIGH_ALTITUDE,
       
       // Time penalty
       timePenalty: RL_CONFIG.REWARD_TIME_PENALTY,
@@ -71,6 +77,7 @@ export class RewardCalculator {
    * @param {number} params.targetRadius - Radius to consider target reached
    * @param {boolean} params.hadCollision - Whether collision occurred
    * @param {number} params.minLidarDist - Minimum lidar distance (obstacle proximity)
+   * @param {Array<number>} params.lidarDistances - All lidar ray distances for comprehensive proximity check
    * @param {number} params.nadirDistance - Distance to ground (nadir lidar ray)
    * @param {Object} params.droneState - Drone state { x, y, z, vx, vy, vz }
    * @param {Object} params.targetDirWorld - Target direction in world coords { x, y, z }
@@ -84,6 +91,7 @@ export class RewardCalculator {
       targetRadius,
       hadCollision,
       minLidarDist,
+      lidarDistances,
       nadirDistance,
       droneState,
       targetDirWorld,
@@ -94,7 +102,7 @@ export class RewardCalculator {
     const breakdown = {};
     
     // =====================================================
-    // 1. COLLISION PENALTY (Highest priority - terminal)
+    // 1. COLLISION PENALTY (CATASTROPHIC - must NEVER happen)
     // =====================================================
     if (hadCollision) {
       reward += this.config.collision;
@@ -104,7 +112,17 @@ export class RewardCalculator {
     }
     
     // =====================================================
-    // 2. DISTANCE PROGRESS (Primary shaping reward)
+    // 2. OBSTACLE PROXIMITY PENALTY (CRITICAL - must HATE being close)
+    // =====================================================
+    // Use ALL lidar rays to create comprehensive "force field" of fear
+    const proximityPenalty = this.calculateProximityPenalty(lidarDistances, minLidarDist);
+    if (proximityPenalty < 0) {
+      reward += proximityPenalty;
+      breakdown.proximity = proximityPenalty;
+    }
+    
+    // =====================================================
+    // 3. DISTANCE PROGRESS (Primary shaping reward)
     // =====================================================
     const distanceProgress = prevDistance - currentDistance;
     
@@ -121,34 +139,11 @@ export class RewardCalculator {
     }
     
     // =====================================================
-    // 3. TARGET REACHED BONUS
+    // 4. TARGET REACHED BONUS
     // =====================================================
     if (currentDistance < targetRadius) {
       reward += this.config.targetReached;
       breakdown.targetReached = this.config.targetReached;
-    }
-    
-    // =====================================================
-    // 4. OBSTACLE PROXIMITY PENALTY (Graduated)
-    // =====================================================
-    // Use exponential penalty that increases dramatically as obstacles get closer
-    if (minLidarDist < this.config.obstacleDangerDistance) {
-      // Normalized proximity (1 = touching, 0 = at danger distance)
-      const normalizedProximity = 1 - (minLidarDist / this.config.obstacleDangerDistance);
-      
-      // Exponential scaling for closer obstacles
-      let proximityPenalty;
-      if (minLidarDist < this.config.obstacleCloseDistance) {
-        // Very close - exponential penalty
-        const closeProximity = 1 - (minLidarDist / this.config.obstacleCloseDistance);
-        proximityPenalty = this.config.obstacleProximity * (1 + closeProximity * closeProximity * 3);
-      } else {
-        // Moderate distance - linear penalty
-        proximityPenalty = normalizedProximity * this.config.obstacleProximity;
-      }
-      
-      reward += proximityPenalty;
-      breakdown.proximity = proximityPenalty;
     }
     
     // =====================================================
@@ -219,9 +214,9 @@ export class RewardCalculator {
     }
     
     // =====================================================
-    // 8. LOW ALTITUDE BONUS (Using nadir lidar)
+    // 8. ALTITUDE REWARDS/PENALTIES (Using nadir lidar)
     // =====================================================
-    // Reward flying low to the ground (more challenging, realistic)
+    // Reward flying low, PUNISH flying high
     // nadirDistance is the distance to ground from lidar
     const effectiveAltitude = nadirDistance !== undefined ? nadirDistance : (droneState.y - terrainHeight);
     
@@ -233,8 +228,18 @@ export class RewardCalculator {
       // Good altitude: 4-8 meters - smaller bonus
       reward += this.config.goodAltitude;
       breakdown.altitude = this.config.goodAltitude;
+    } else if (effectiveAltitude >= 8 && effectiveAltitude < 15) {
+      // Too high: 8-15 meters - PENALTY
+      reward += this.config.highAltitude;
+      breakdown.highAltitude = this.config.highAltitude;
+    } else if (effectiveAltitude >= 15) {
+      // Way too high: >15 meters - STRONG PENALTY
+      // Scale penalty with altitude to really discourage going higher
+      const altitudeFactor = Math.min(3, effectiveAltitude / 15); // Cap at 3x
+      const veryHighPenalty = this.config.veryHighAltitude * altitudeFactor;
+      reward += veryHighPenalty;
+      breakdown.veryHighAltitude = veryHighPenalty;
     }
-    // No bonus for flying too high (>8m) or too low (<1.5m)
     
     // =====================================================
     // 9. TIME PENALTY (Encourages efficiency)
@@ -243,6 +248,65 @@ export class RewardCalculator {
     breakdown.time = this.config.timePenalty;
     
     return { reward, breakdown };
+  }
+  
+  /**
+   * Calculate proximity penalty based on ALL lidar rays
+   * Creates a comprehensive "force field" of fear around obstacles
+   * 
+   * The agent should HATE being close to obstacles. This penalty:
+   * - Considers ALL lidar rays, not just the minimum
+   * - Uses exponential scaling for very close obstacles
+   * - Accumulates penalties from multiple close rays
+   * 
+   * @param {Array<number>} lidarDistances - All lidar ray distances
+   * @param {number} minLidarDist - Minimum distance (fallback)
+   * @returns {number} - Total proximity penalty (negative)
+   */
+  calculateProximityPenalty(lidarDistances, minLidarDist) {
+    let totalPenalty = 0;
+    
+    // Use the distances array if available, otherwise fall back to minLidarDist
+    const distances = lidarDistances && lidarDistances.length > 0 
+      ? lidarDistances 
+      : [minLidarDist];
+    
+    // Count rays in different danger zones
+    let criticalRays = 0;  // < CRITICAL_DISTANCE (2m)
+    let closeRays = 0;     // < CLOSE_DISTANCE (4m)
+    let dangerRays = 0;    // < DANGER_DISTANCE (8m)
+    
+    for (const dist of distances) {
+      if (dist < this.config.obstacleCriticalDistance) {
+        // CRITICAL ZONE: Exponential penalty - agent should be TERRIFIED
+        const criticalFactor = 1 - (dist / this.config.obstacleCriticalDistance);
+        // Exponential: penalty grows rapidly as distance approaches 0
+        const exponentialPenalty = this.config.obstacleVeryClose * (1 + criticalFactor * criticalFactor * 5);
+        totalPenalty += exponentialPenalty;
+        criticalRays++;
+      } else if (dist < this.config.obstacleCloseDistance) {
+        // CLOSE ZONE: Strong linear penalty
+        const closeFactor = 1 - (dist / this.config.obstacleCloseDistance);
+        totalPenalty += this.config.obstacleVeryClose * closeFactor;
+        closeRays++;
+      } else if (dist < this.config.obstacleDangerDistance) {
+        // DANGER ZONE: Moderate penalty
+        const dangerFactor = 1 - (dist / this.config.obstacleDangerDistance);
+        totalPenalty += this.config.obstacleProximity * dangerFactor;
+        dangerRays++;
+      }
+    }
+    
+    // Additional penalty for having MULTIPLE rays in danger zones
+    // This teaches the agent to avoid being surrounded
+    if (criticalRays > 1) {
+      totalPenalty += this.config.obstacleVeryClose * (criticalRays - 1) * 0.5;
+    }
+    if (closeRays > 2) {
+      totalPenalty += this.config.obstacleProximity * (closeRays - 2) * 0.3;
+    }
+    
+    return totalPenalty;
   }
   
   /**

@@ -173,6 +173,7 @@ export class RLEnvironment {
     const state = this.drone.getState();
     const currentDist = this.getDistanceToTarget();
     const minLidarDist = this.lidar.getMinDistance();
+    const lidarDistances = this.lidar.getDistances(); // All lidar rays for comprehensive proximity check
     const nadirDistance = this.lidar.getNadirDistance();
     const targetDirWorld = this.getTargetDirectionWorld();
     const terrainHeight = this.forest.getTerrainHeight(state.x, state.z);
@@ -183,6 +184,7 @@ export class RLEnvironment {
       targetRadius: this.targetManager.getRadius(),
       hadCollision: this.drone.hadCollision(),
       minLidarDist,
+      lidarDistances,
       nadirDistance,
       droneState: state,
       targetDirWorld,

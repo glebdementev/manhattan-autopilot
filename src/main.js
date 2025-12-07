@@ -495,6 +495,9 @@ class Simulation {
 
   /**
    * Keep drone within forest bounds
+   * NOTE: Only enforces horizontal bounds and minimum height.
+   * There is NO ceiling - the drone can fly as high as it wants.
+   * Collision detection handles terrain and obstacle collisions.
    */
   enforceBounds() {
     const state = this.drone.getState();
@@ -506,19 +509,25 @@ class Simulation {
     let z = state.z;
     let changed = false;
     
-    // Horizontal bounds
+    // Horizontal bounds only
     if (x < -halfSize) { x = -halfSize; changed = true; }
     if (x > halfSize) { x = halfSize; changed = true; }
     if (z < -halfSize) { z = -halfSize; changed = true; }
     if (z > halfSize) { z = halfSize; changed = true; }
     
-    // Vertical bounds
+    // Minimum height only (no ceiling!)
+    // The collision system handles terrain collision properly,
+    // but we add a safety minimum to prevent going underground
     const groundY = this.forestGenerator.getTerrainHeight(x, z);
-    const minY = groundY + FOREST.FLYING_HEIGHT_MIN;
-    const maxY = groundY + FOREST.FLYING_HEIGHT_MAX + 5;
+    const minY = groundY + 0.5; // Small margin above ground
     
-    if (y < minY) { y = minY; changed = true; }
-    if (y > maxY) { y = maxY; changed = true; }
+    if (y < minY) { 
+      y = minY; 
+      changed = true; 
+    }
+    
+    // NO CEILING - drone can fly freely upward
+    // The RL reward system penalizes high altitude flying instead
     
     if (changed) {
       this.drone.setPosition(x, y, z);
@@ -533,4 +542,21 @@ window.addEventListener('DOMContentLoaded', async () => {
   
   // Expose for debugging
   window.sim = sim;
+  
+  // Debug helper functions
+  window.enableCollisionDebug = () => {
+    const collisionSystem = sim.drone.getCollisionSystem();
+    collisionSystem.setDebugEnabled(true);
+    collisionSystem.createDebugHelpers(sim.sceneManager.scene);
+    console.log('Collision debug visualization enabled');
+  };
+  
+  window.disableCollisionDebug = () => {
+    const collisionSystem = sim.drone.getCollisionSystem();
+    collisionSystem.setDebugEnabled(false);
+    collisionSystem.clearDebugHelpers();
+    console.log('Collision debug visualization disabled');
+  };
+  
+  console.log('Debug helpers available: enableCollisionDebug(), disableCollisionDebug()');
 });

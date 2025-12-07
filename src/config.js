@@ -135,20 +135,24 @@ export const RL_CONFIG = {
   REWARD_DISTANCE_PROGRESS: 2.5, // Reward for getting closer to target (per meter)
   REWARD_DISTANCE_REGRESS: 3.0, // Penalty multiplier for moving away from target (stronger than progress)
   
-  // Collision/Safety penalties
-  REWARD_COLLISION: -100,       // Heavy penalty for collision (terminal event)
-  REWARD_OBSTACLE_PROXIMITY: -0.8, // Base penalty for being close to obstacles
-  OBSTACLE_DANGER_DISTANCE: 6,  // Distance at which obstacles become dangerous (meters)
-  OBSTACLE_CLOSE_DISTANCE: 2.5, // Distance at which exponential penalty kicks in (meters)
+  // Collision/Safety penalties (CRITICAL - agent must HATE being near obstacles)
+  REWARD_COLLISION: -500,       // CATASTROPHIC penalty for collision - must never happen
+  REWARD_OBSTACLE_PROXIMITY: -2.0, // Strong base penalty for being close to obstacles
+  REWARD_OBSTACLE_VERY_CLOSE: -8.0, // Extreme penalty when dangerously close
+  OBSTACLE_DANGER_DISTANCE: 8,  // Distance at which obstacles become dangerous (meters)
+  OBSTACLE_CLOSE_DISTANCE: 4,   // Distance at which strong penalty kicks in (meters)
+  OBSTACLE_CRITICAL_DISTANCE: 2, // Distance at which EXTREME penalty kicks in (meters)
   
   // Speed rewards (Encourages efficient navigation)
   REWARD_HIGH_SPEED: 0.15,      // Bonus for maintaining high speed
   REWARD_STAGNATION: -0.3,      // Penalty for staying in one place (anti-hovering)
   REWARD_VELOCITY_TOWARDS_TARGET: 0.2, // Bonus for moving towards target
   
-  // Altitude rewards (Encourages low flight)
-  REWARD_LOW_ALTITUDE: 0.08,    // Bonus for flying low (1.5-4m above ground)
-  REWARD_GOOD_ALTITUDE: 0.03,   // Smaller bonus for moderate altitude (4-8m)
+  // Altitude rewards/penalties (Encourages low flight, HATES high flight)
+  REWARD_LOW_ALTITUDE: 0.12,    // Bonus for flying low (1.5-4m above ground)
+  REWARD_GOOD_ALTITUDE: 0.05,   // Smaller bonus for moderate altitude (4-8m)
+  REWARD_HIGH_ALTITUDE: -0.5,   // Penalty for flying too high (8-15m)
+  REWARD_VERY_HIGH_ALTITUDE: -2.0, // Strong penalty for flying way too high (>15m)
   
   // Time penalty
   REWARD_TIME_PENALTY: -0.02,   // Small penalty per step (encourages fast completion)
