@@ -79,15 +79,15 @@ export class SceneManager {
     const group = new THREE.Group();
     group.name = 'target_marker';
     
-    // Simple glowing sphere
-    const sphereGeom = new THREE.SphereGeometry(1.2, 12, 12);
-    const sphereMat = new THREE.MeshBasicMaterial({
+    // Simple glowing box
+    const boxGeom = new THREE.BoxGeometry(2.0, 2.0, 2.0);
+    const boxMat = new THREE.MeshBasicMaterial({
       color: COLORS.TARGET,
       transparent: true,
       opacity: 0.7,
     });
-    const sphere = new THREE.Mesh(sphereGeom, sphereMat);
-    group.add(sphere);
+    const box = new THREE.Mesh(boxGeom, boxMat);
+    group.add(box);
     
     // Vertical beam
     const beamGeom = new THREE.CylinderGeometry(0.15, 0.15, 40, 6);

@@ -226,8 +226,7 @@ export class ForestGenerator {
       z = Math.max(-halfSize, Math.min(halfSize, z));
       
       const groundY = this.getTerrainHeight(x, z);
-      const y = groundY + FOREST.FLYING_HEIGHT_MIN + random() * 
-        (FOREST.FLYING_HEIGHT_MAX - FOREST.FLYING_HEIGHT_MIN);
+      const y = groundY + 1.8; // Fixed height at 1.8m above ground
       
       // Check if position has 0.5x0.5 clearance (can be under canopies)
       if (this.isTargetPositionClear(x, y, z, targetClearance)) {
@@ -237,7 +236,7 @@ export class ForestGenerator {
     
     // Fallback: find a clear position near the origin
     const groundY = this.getTerrainHeight(0, 0);
-    return { x: 0, y: groundY + FOREST.FLYING_HEIGHT_MAX, z: 0 };
+    return { x: 0, y: groundY + 1.8, z: 0 };
   }
   
   /**
