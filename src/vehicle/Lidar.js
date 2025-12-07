@@ -3,7 +3,6 @@
  * Features:
  * - Horizontal sweep rays for obstacle detection
  * - Nadir (downward) and zenith (upward) rays for altitude awareness
- * - Efficient single-geometry visualization
  */
 import * as THREE from 'three';
 import { LIDAR } from '../config.js';
@@ -13,6 +12,9 @@ export class Lidar {
     this.drone = drone;
     this.raycaster = new THREE.Raycaster();
     this.raycaster.far = LIDAR.MAX_RANGE;
+    
+    // Raycast targets (set externally)
+    this.raycastTargets = [];
     
     // Calculate total rays: grid rays + nadir + zenith
     this.numGridRays = LIDAR.NUM_HORIZONTAL_RAYS * LIDAR.NUM_VERTICAL_RAYS;
@@ -26,10 +28,6 @@ export class Lidar {
     // Store latest readings
     this.distances = new Array(this.numRays).fill(LIDAR.MAX_RANGE);
     this.hitPoints = [];
-    
-    // Frame skipping for performance
-    this.frameCounter = 0;
-    this.scanInterval = 2; // Scan every 2 frames
     
     // Pre-calculate ray directions (in local drone space)
     this.rayDirections = this.calculateRayDirections();
@@ -62,6 +60,13 @@ export class Lidar {
     this.targetPosition = null;
     this.targetVisible = false;
     this.setupTargetLine();
+  }
+  
+  /**
+   * Set raycast targets
+   */
+  setRaycastTargets(targets) {
+    this.raycastTargets = targets;
   }
   
   /**
@@ -201,15 +206,9 @@ export class Lidar {
   }
 
   /**
-   * Perform 3D LiDAR scan
+   * Perform 3D LiDAR scan using Three.js raycasting
    */
-  scan(obstacles) {
-    // Frame skipping for performance
-    this.frameCounter++;
-    if (this.frameCounter % this.scanInterval !== 0) {
-      return this.distances;
-    }
-    
+  scan() {
     this.hitPoints = [];
     
     const droneX = this.drone.x;
@@ -230,7 +229,6 @@ export class Lidar {
       const localDir = this.rayDirections[i];
       
       // Transform direction from local to world space (rotate by yaw)
-      // Nadir and zenith rays don't need yaw rotation (they're vertical)
       if (i === this.nadirIndex || i === this.zenithIndex) {
         this._direction.copy(localDir);
       } else {
@@ -244,9 +242,9 @@ export class Lidar {
       // Store world direction for external use
       this.worldDirections[i].copy(this._direction);
       
-      // Perform raycast
+      // Perform Three.js raycast
       this.raycaster.set(this._origin, this._direction);
-      const intersections = this.raycaster.intersectObjects(obstacles, false);
+      const intersections = this.raycaster.intersectObjects(this.raycastTargets, false);
       
       let hitDistance = LIDAR.MAX_RANGE;
       let hitPoint = null;
@@ -293,7 +291,6 @@ export class Lidar {
         
         // Update hit sphere position
         if (i === this.nadirIndex) {
-          // Special nadir sphere
           if (hitPoint) {
             this.nadirSphere.position.set(hitPoint.x, hitPoint.y, hitPoint.z);
             this.nadirSphere.visible = true;
@@ -301,7 +298,6 @@ export class Lidar {
             this.nadirSphere.visible = false;
           }
         } else if (i === this.zenithIndex) {
-          // Special zenith sphere
           if (hitPoint) {
             this.zenithSphere.position.set(hitPoint.x, hitPoint.y, hitPoint.z);
             this.zenithSphere.visible = true;
@@ -309,11 +305,9 @@ export class Lidar {
             this.zenithSphere.visible = false;
           }
         } else {
-          // Regular hit sphere (instanced)
           if (hitPoint) {
             this._instanceMatrix.setPosition(hitPoint.x, hitPoint.y, hitPoint.z);
           } else {
-            // Hide by moving far away
             this._instanceMatrix.setPosition(this._hiddenPosition.x, this._hiddenPosition.y, this._hiddenPosition.z);
           }
           this.hitSpheres.setMatrixAt(i, this._instanceMatrix);

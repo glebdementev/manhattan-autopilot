@@ -49,10 +49,10 @@ export const DRONE = {
 
 // LiDAR configuration - OPTIMIZED
 export const LIDAR = {
-  NUM_HORIZONTAL_RAYS: 16,  // Reduced from 32
-  NUM_VERTICAL_RAYS: 4,     // Reduced from 8
+  NUM_HORIZONTAL_RAYS: 16,  // 16 horizontal rays
+  NUM_VERTICAL_RAYS: 1,     // Single vertical layer = 16 total rays
   HORIZONTAL_FOV: Math.PI * 1.5, // 270 degrees horizontal
-  VERTICAL_FOV: Math.PI / 4,     // 45 degrees vertical
+  VERTICAL_FOV: 0,                // No vertical spread (single layer)
   MAX_RANGE: 25,            // Reduced range
   VISUALIZE: false,         // DISABLED by default for performance
   RAY_COLOR: 0x00ffaa,      // Color of LiDAR rays

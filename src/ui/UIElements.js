@@ -79,14 +79,14 @@ export function createInfoPanelHTML() {
         
         <div class="control-group">
           <label class="checkbox-label">
-            <input type="checkbox" id="training-toggle" checked>
+            <input type="checkbox" id="training-toggle">
             Enable Training
           </label>
         </div>
         
         <div class="control-group">
           <label class="checkbox-label">
-            <input type="checkbox" id="learn-from-manual-toggle" checked>
+            <input type="checkbox" id="learn-from-manual-toggle">
             Learn from Manual
           </label>
         </div>

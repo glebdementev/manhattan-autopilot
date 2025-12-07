@@ -39,11 +39,15 @@ class Simulation {
     this.lastTime = 0;
     this.currentSeed = 42;
     
-    // Training state
-    this.trainingEnabled = true;
-    this.learnFromManual = true; // Enable by default so RL learns from user demonstrations
+    // Training state - DISABLED by default, user must enable
+    this.trainingEnabled = false;
+    this.learnFromManual = false;
     this.stepsSinceLastTrain = 0;
     this.episodesSinceSceneChange = 0;
+    
+    // Performance optimization: skip UI updates
+    this.frameCounter = 0;
+    this.uiUpdateInterval = 30;
     
     // Manual control
     this.manualInput = {
@@ -85,6 +89,7 @@ class Simulation {
     
     // Create LiDAR
     this.lidar = new Lidar(this.drone);
+    this.lidar.setRaycastTargets(this.raycastTargets);
     this.sceneManager.add(this.lidar.getVisualGroup());
     
     // Create Ghost Drone (shows what RL would do)
@@ -172,6 +177,11 @@ class Simulation {
     // Update ghost drone collision checker
     if (this.ghostDrone) {
       this.ghostDrone.setCollisionChecker(this.forestGenerator);
+    }
+    
+    // Update LiDAR raycast targets
+    if (this.lidar) {
+      this.lidar.setRaycastTargets(this.raycastTargets);
     }
   }
 
@@ -455,6 +465,9 @@ class Simulation {
     let deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1);
     this.lastTime = currentTime;
     
+    // Increment frame counter for frame skipping
+    this.frameCounter++;
+    
     if (!this.isRegenerating) {
       this.update(deltaTime);
     }
@@ -470,41 +483,28 @@ class Simulation {
     // Get action for main drone
     const action = this.getAction();
     
-    // In manual mode, also update ghost drone with RL action
-    if (this.driverMode === 'manual') {
-      // Keep ghost drone yaw synced with main drone (neither rotates)
-      this.ghostDrone.setYaw(this.drone.yaw);
-      
-      const rlAction = this.getRLAction();
-      this.ghostDrone.setControls(rlAction[0], rlAction[1], rlAction[2]);
-      this.ghostDrone.update(dt);
-      this.enforceGhostBounds();
-    }
-    
     // Take step in environment
     const { observation, reward, done, info } = this.rlEnvironment.step(action, dt);
     
-    // Store experience for training
-    // In RL mode: always store if training enabled
-    // In manual mode: store if learnFromManual is enabled (to teach from demonstrations)
-    const shouldStoreExperience = 
-      (this.driverMode === 'rl' && this.trainingEnabled) ||
-      (this.driverMode === 'manual' && this.learnFromManual);
-    
-    if (shouldStoreExperience) {
-      this.rlAgent.storeExperience(
-        this.currentObservation,
-        action,
-        reward,
-        observation,
-        done
-      );
+    // Only store/train if explicitly enabled
+    if (this.trainingEnabled) {
+      const shouldStore = this.driverMode === 'rl' || this.learnFromManual;
       
-      // Train periodically
-      this.stepsSinceLastTrain++;
-      if (this.stepsSinceLastTrain >= RL_CONFIG.TRAIN_INTERVAL && this.trainingEnabled) {
-        this.rlAgent.train();
-        this.stepsSinceLastTrain = 0;
+      if (shouldStore) {
+        this.rlAgent.storeExperience(
+          this.currentObservation,
+          action,
+          reward,
+          observation,
+          done
+        );
+        
+        // Train periodically
+        this.stepsSinceLastTrain++;
+        if (this.stepsSinceLastTrain >= RL_CONFIG.TRAIN_INTERVAL) {
+          this.rlAgent.train();
+          this.stepsSinceLastTrain = 0;
+        }
       }
     }
     
@@ -519,21 +519,14 @@ class Simulation {
     // Keep drone in bounds
     this.enforceBounds();
     
-    // Update camera based on selected target
-    const cameraState = this.cameraTarget === 'ghost' && this.driverMode === 'manual'
-      ? this.ghostDrone.getState()
-      : this.drone.getState();
+    // Update camera to follow drone
+    const state = this.drone.getState();
+    this.sceneManager.followTarget(state.x, state.y, state.z, state.yaw, 'chase');
     
-    this.sceneManager.followTarget(
-      cameraState.x,
-      cameraState.y,
-      cameraState.z,
-      cameraState.yaw,
-      'chase'
-    );
-    
-    // Update UI
-    this.updateUI();
+    // Update UI (with frame skipping for performance)
+    if (this.frameCounter % this.uiUpdateInterval === 0) {
+      this.updateUI();
+    }
   }
 
   /**

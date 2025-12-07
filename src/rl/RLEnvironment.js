@@ -63,7 +63,8 @@ export class RLEnvironment {
   setForest(forest) {
     this.forest = forest;
     this.targetManager.setForest(forest);
-    this.raycastTargets = forest.getRaycastTargets();
+    // Update lidar raycast targets
+    this.lidar.setRaycastTargets(forest.getRaycastTargets());
   }
   
   /**
@@ -98,7 +99,7 @@ export class RLEnvironment {
     this.lidar.setTargetVisible(this.canSeeTarget());
     
     // Initial lidar scan (AFTER drone orientation is set)
-    this.lidar.scan(this.raycastTargets);
+    this.lidar.scan();
     
     // Get initial observation
     return this.getObservation();
@@ -146,7 +147,7 @@ export class RLEnvironment {
     this.lidar.setTargetVisible(this.canSeeTarget());
     
     // Scan lidar
-    this.lidar.scan(this.raycastTargets);
+    this.lidar.scan();
     
     // Calculate reward
     const { reward, breakdown: rewardBreakdown } = this.calculateReward(prevDist);

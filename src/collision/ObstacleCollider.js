@@ -1,12 +1,43 @@
 /**
  * ObstacleCollider - Handles obstacle collision detection
  * 
- * Uses box-cylinder collision test for accurate detection
+ * Uses spatial grid for O(1) lookups and box-cylinder collision test
  */
 
 export class ObstacleCollider {
   constructor() {
     this.obstacles = [];
+    
+    // Spatial grid for fast lookups
+    this.gridCellSize = 10; // 10 meter cells
+    this.grid = new Map();
+  }
+  
+  /**
+   * Get grid cell key for a position
+   */
+  getCellKey(x, z) {
+    const cellX = Math.floor(x / this.gridCellSize);
+    const cellZ = Math.floor(z / this.gridCellSize);
+    return `${cellX},${cellZ}`;
+  }
+  
+  /**
+   * Get all cell keys that an obstacle with given radius occupies
+   */
+  getObstacleCellKeys(x, z, radius) {
+    const keys = [];
+    const minCellX = Math.floor((x - radius) / this.gridCellSize);
+    const maxCellX = Math.floor((x + radius) / this.gridCellSize);
+    const minCellZ = Math.floor((z - radius) / this.gridCellSize);
+    const maxCellZ = Math.floor((z + radius) / this.gridCellSize);
+    
+    for (let cx = minCellX; cx <= maxCellX; cx++) {
+      for (let cz = minCellZ; cz <= maxCellZ; cz++) {
+        keys.push(`${cx},${cz}`);
+      }
+    }
+    return keys;
   }
   
   /**
@@ -14,6 +45,7 @@ export class ObstacleCollider {
    */
   clear() {
     this.obstacles = [];
+    this.grid.clear();
   }
   
   /**
@@ -21,14 +53,24 @@ export class ObstacleCollider {
    * @param {Object} obstacle - { type, x, z, radius, minY, maxY }
    */
   addObstacle(obstacle) {
-    this.obstacles.push({
+    const obs = {
       type: obstacle.type,
       x: obstacle.x,
       z: obstacle.z,
       radius: obstacle.radius,
       minY: obstacle.minY,
       maxY: obstacle.maxY,
-    });
+    };
+    this.obstacles.push(obs);
+    
+    // Add to spatial grid
+    const cellKeys = this.getObstacleCellKeys(obs.x, obs.z, obs.radius);
+    for (const key of cellKeys) {
+      if (!this.grid.has(key)) {
+        this.grid.set(key, []);
+      }
+      this.grid.get(key).push(obs);
+    }
   }
   
   /**
@@ -45,6 +87,39 @@ export class ObstacleCollider {
    */
   getCount() {
     return this.obstacles.length;
+  }
+  
+  /**
+   * Get nearby obstacles using spatial grid
+   */
+  getNearbyObstacles(x, z, radius) {
+    const checked = new Set();
+    const nearby = [];
+    
+    // Check cells that could contain relevant obstacles
+    const minCellX = Math.floor((x - radius) / this.gridCellSize);
+    const maxCellX = Math.floor((x + radius) / this.gridCellSize);
+    const minCellZ = Math.floor((z - radius) / this.gridCellSize);
+    const maxCellZ = Math.floor((z + radius) / this.gridCellSize);
+    
+    for (let cx = minCellX; cx <= maxCellX; cx++) {
+      for (let cz = minCellZ; cz <= maxCellZ; cz++) {
+        const key = `${cx},${cz}`;
+        const cell = this.grid.get(key);
+        if (cell) {
+          for (const obs of cell) {
+            // Avoid duplicates (obstacles can span multiple cells)
+            const obsId = `${obs.x},${obs.z}`;
+            if (!checked.has(obsId)) {
+              checked.add(obsId);
+              nearby.push(obs);
+            }
+          }
+        }
+      }
+    }
+    
+    return nearby;
   }
   
   /**
@@ -67,7 +142,11 @@ export class ObstacleCollider {
     const boxMinZ = z - halfDepth;
     const boxMaxZ = z + halfDepth;
     
-    for (const obstacle of this.obstacles) {
+    // Only check nearby obstacles (spatial grid lookup)
+    const searchRadius = Math.max(halfWidth, halfDepth) + 10; // 10m max obstacle radius
+    const nearbyObstacles = this.getNearbyObstacles(x, z, searchRadius);
+    
+    for (const obstacle of nearbyObstacles) {
       if (this.checkBoxCylinderCollision(
         boxMinX, boxMaxX, boxMinY, boxMaxY, boxMinZ, boxMaxZ,
         obstacle

@@ -18,20 +18,10 @@ const LIGHT_CONFIG = {
   LIGHT_COLOR: COLORS.DRONE_LIGHT,
 };
 
-// Tilt configuration
-const TILT_CONFIG = {
-  MAX_TILT: 0.25,           // Maximum tilt angle in radians (~14 degrees)
-  SMOOTHING: 0.15,          // Smoothing factor for tilt transitions
-};
-
 export class DroneMesh {
   constructor() {
     this.mesh = this.createMesh();
     this.droneLight = this.createLight();
-    
-    // Current smoothed tilt values
-    this.currentPitchTilt = 0;
-    this.currentRollTilt = 0;
     
     // Raycaster for proximity detection
     this.raycaster = new THREE.Raycaster();
@@ -118,45 +108,14 @@ export class DroneMesh {
    * @param {number} y - World Y position
    * @param {number} z - World Z position
    * @param {number} yaw - Yaw rotation in radians
-   * @param {Object} localVelocity - { x: forward/back, y: right/left, z: up/down }
+   * @param {Object} localVelocity - { x: forward/back, y: right/left, z: up/down } (unused)
    */
   update(x, y, z, yaw, localVelocity) {
     // Update position
     this.mesh.position.set(x, y, z);
     
-    // Calculate target tilt based on LOCAL velocity
-    // Pitch (rotation.x): tilts forward when moving forward, back when moving back
-    // Roll (rotation.z): tilts right when strafing right, left when strafing left
-    const targetPitch = -localVelocity.x * TILT_CONFIG.MAX_TILT / DRONE.MAX_SPEED;
-    const targetRoll = localVelocity.y * TILT_CONFIG.MAX_TILT / DRONE.MAX_SPEED;
-    
-    // Smooth the tilt transitions
-    this.currentPitchTilt += (targetPitch - this.currentPitchTilt) * TILT_CONFIG.SMOOTHING;
-    this.currentRollTilt += (targetRoll - this.currentRollTilt) * TILT_CONFIG.SMOOTHING;
-    
-    // Apply rotations: yaw first, then local pitch and roll
-    // We need to apply tilt in local space, so we use a specific order
-    this.mesh.rotation.set(0, 0, 0);
-    this.mesh.rotation.y = yaw;
-    
-    // Apply local tilt by rotating around local axes
-    // Pitch around local X axis (forward/back tilt)
-    // Roll around local Z axis (left/right tilt)
-    const pitchQuat = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
-      this.currentPitchTilt
-    );
-    const rollQuat = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 0, 1),
-      this.currentRollTilt
-    );
-    
-    // Get current yaw quaternion
-    const yawQuat = new THREE.Quaternion().setFromEuler(this.mesh.rotation);
-    
-    // Combine: yaw * pitch * roll (apply tilt in local space after yaw)
-    const finalQuat = yawQuat.multiply(pitchQuat).multiply(rollQuat);
-    this.mesh.quaternion.copy(finalQuat);
+    // Apply only yaw rotation (no tilt effect)
+    this.mesh.rotation.set(0, yaw, 0);
     
     // Update proximity light
     this.updateProximityLight();
@@ -238,11 +197,9 @@ export class DroneMesh {
   }
   
   /**
-   * Reset tilt values
+   * Reset state
    */
   reset() {
-    this.currentPitchTilt = 0;
-    this.currentRollTilt = 0;
     this.droneLight.intensity = LIGHT_CONFIG.BASE_INTENSITY;
   }
 }
