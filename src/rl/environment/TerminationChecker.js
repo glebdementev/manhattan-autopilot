@@ -16,6 +16,7 @@ export class TerminationChecker {
    * @param {number} params.distToTarget - Distance to target
    * @param {number} params.targetRadius - Target reach radius
    * @param {boolean} params.hadCollision - Whether collision occurred
+   * @param {string} [params.collisionType] - Type of collision (trunk, canopy, ground, etc.)
    * @param {number} params.episodeSteps - Current episode step count
    * @param {Object} params.droneState - Drone state { x, y, z }
    * @param {number} params.worldHalfSize - Half of world size (for bounds check)
@@ -26,6 +27,7 @@ export class TerminationChecker {
       distToTarget,
       targetRadius,
       hadCollision,
+      collisionType,
       episodeSteps,
       droneState,
       worldHalfSize,
@@ -43,7 +45,7 @@ export class TerminationChecker {
     if (hadCollision) {
       return {
         done: true,
-        info: { success: false, reason: 'collision' },
+        info: { success: false, reason: 'collision', collisionType },
       };
     }
     

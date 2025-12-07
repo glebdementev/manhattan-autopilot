@@ -27,7 +27,11 @@ export class TrainingController {
     console.log('Starting offline training...');
     this.isTraining = true;
     
+    // Show training screen IMMEDIATELY
     if (this.onTrainingStart) this.onTrainingStart();
+    
+    // Yield to allow UI to render
+    await new Promise(resolve => setTimeout(resolve, 50));
     
     // Create trainer
     this.offlineTrainer = new OfflineTrainer(
@@ -42,10 +46,9 @@ export class TrainingController {
     };
     
     this.offlineTrainer.onEpisodeEnd = (info) => {
-      const msg = info.success 
-        ? `Episode ${info.episode}: SUCCESS (reward: ${info.reward.toFixed(1)})`
-        : `Episode ${info.episode}: ${info.reward.toFixed(1)} reward, ${info.steps} steps`;
-      ui.logTraining(msg, info.success ? 'success' : 'default');
+      const msg = this.formatEpisodeEndMessage(info);
+      const type = info.success ? 'success' : (info.reason === 'collision' ? 'failure' : 'default');
+      ui.logTraining(msg, type);
     };
     
     this.offlineTrainer.onComplete = (stats) => {
@@ -64,6 +67,51 @@ export class TrainingController {
     ui.logTraining('Model ready! Click "Download Model" to save, or "Stop Training" to return.', 'info');
     
     if (this.onModelLoaded) this.onModelLoaded();
+  }
+
+  /**
+   * Format episode end message with reason details
+   */
+  formatEpisodeEndMessage(info) {
+    const { episode, reward, steps, success, reason, collisionType } = info;
+    
+    if (success) {
+      return `Episode ${episode}: ✓ SUCCESS (reward: ${reward.toFixed(1)}, ${steps} steps)`;
+    }
+    
+    let reasonText = '';
+    switch (reason) {
+      case 'collision':
+        const collisionDetail = this.formatCollisionType(collisionType);
+        reasonText = `💥 COLLISION (${collisionDetail})`;
+        break;
+      case 'timeout':
+        reasonText = '⏱ TIMEOUT';
+        break;
+      case 'out_of_bounds':
+        reasonText = '🚧 OUT OF BOUNDS';
+        break;
+      default:
+        reasonText = reason || 'FAILED';
+    }
+    
+    return `Episode ${episode}: ${reasonText} | reward: ${reward.toFixed(1)}, ${steps} steps`;
+  }
+
+  /**
+   * Format collision type for display
+   */
+  formatCollisionType(type) {
+    if (!type) return 'unknown';
+    
+    switch (type) {
+      case 'trunk': return 'tree trunk';
+      case 'canopy': return 'canopy';
+      case 'ground': return 'ground';
+      case 'bush': return 'bush';
+      case 'bounds': return 'world boundary';
+      default: return type;
+    }
   }
 
   /**

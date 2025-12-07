@@ -235,6 +235,7 @@ export class RLEnvironment {
       distToTarget,
       targetRadius: this.targetManager.getRadius(),
       hadCollision: this.drone.hadCollision(),
+      collisionType: this.drone.getLastCollisionType(),
       episodeSteps: stats.currentEpisodeSteps,
       droneState: state,
       worldHalfSize: this.forest.size / 2,

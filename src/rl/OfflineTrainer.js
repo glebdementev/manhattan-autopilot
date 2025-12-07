@@ -23,10 +23,14 @@ export class OfflineTrainer {
     this.onEpisodeEnd = null;
     this.onComplete = null;
     
-    // Training config
+    // Training config - optimized for speed
     this.targetEpisodes = 1000;
-    this.stepsPerEpisode = RL_CONFIG.MAX_EPISODE_STEPS;
-    this.trainInterval = RL_CONFIG.TRAIN_INTERVAL;
+    // Reduced max steps for faster episodes
+    this.stepsPerEpisode = Math.min(RL_CONFIG.MAX_EPISODE_STEPS, 500);
+    // Train less frequently for faster episode throughput
+    this.trainInterval = Math.max(RL_CONFIG.TRAIN_INTERVAL, 25);
+    // Use larger timestep for faster simulation (2x normal speed)
+    this.timestep = SIMULATION.TIMESTEP * 2;
   }
   
   /**
@@ -58,13 +62,17 @@ export class OfflineTrainer {
    * Main training loop
    */
   async runTrainingLoop() {
+    // Run episodes in batches for better performance
+    const BATCH_SIZE = 3; // Run multiple episodes before yielding
+    
     while (this.isRunning && this.episodeCount < this.targetEpisodes) {
-      await this.runEpisode();
-      
-      // Yield to UI every few episodes
-      if (this.episodeCount % 5 === 0) {
-        await this.yield();
+      // Run a batch of episodes
+      for (let i = 0; i < BATCH_SIZE && this.isRunning && this.episodeCount < this.targetEpisodes; i++) {
+        await this.runEpisode();
       }
+      
+      // Yield to UI after each batch
+      await this.yield();
     }
     
     if (this.onComplete) {
@@ -80,13 +88,14 @@ export class OfflineTrainer {
     let episodeReward = 0;
     let stepCount = 0;
     let done = false;
+    let lastInfo = {};
     
     while (!done && stepCount < this.stepsPerEpisode) {
       // Get action from agent (with exploration)
       const action = this.agent.selectAction(observation, true);
       
-      // Take step
-      const result = this.environment.step(action, SIMULATION.TIMESTEP);
+      // Take step with accelerated timestep
+      const result = this.environment.step(action, this.timestep);
       
       // Store experience
       this.agent.storeExperience(
@@ -106,6 +115,7 @@ export class OfflineTrainer {
       observation = result.observation;
       episodeReward += result.reward;
       done = result.done;
+      lastInfo = result.info;
       stepCount++;
     }
     
@@ -117,8 +127,11 @@ export class OfflineTrainer {
       this.recentRewards.shift();
     }
     
-    // Check success
-    const wasSuccess = done && this.environment.getDistanceToTarget() < this.environment.targetRadius;
+    // Determine episode outcome
+    const wasSuccess = lastInfo.success === true;
+    const reason = lastInfo.reason || (stepCount >= this.stepsPerEpisode ? 'timeout' : 'unknown');
+    const collisionType = lastInfo.collisionType || null;
+    
     if (wasSuccess) {
       this.successCount++;
     }
@@ -130,6 +143,8 @@ export class OfflineTrainer {
         reward: episodeReward,
         steps: stepCount,
         success: wasSuccess,
+        reason,
+        collisionType,
       });
     }
     
