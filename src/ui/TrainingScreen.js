@@ -47,6 +47,14 @@ export class TrainingScreen {
         </div>
         
         <div class="training-details">
+          <div class="detail-row highlight">
+            <span class="detail-label">⚡ Simulation Speed:</span>
+            <span class="detail-value speed-value" id="train-speed">0x</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Steps/Second:</span>
+            <span class="detail-value" id="train-sps">0</span>
+          </div>
           <div class="detail-row">
             <span class="detail-label">Exploration Rate:</span>
             <span class="detail-value" id="train-exploration">50%</span>
@@ -216,6 +224,20 @@ export class TrainingScreen {
         font-weight: 500;
       }
       
+      .detail-row.highlight {
+        background: rgba(0, 212, 255, 0.1);
+        margin: -8px -10px 8px -10px;
+        padding: 12px 10px;
+        border-radius: 8px;
+        border-bottom: none;
+      }
+      
+      .speed-value {
+        color: #00d4ff !important;
+        font-size: 1.2rem;
+        text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+      }
+      
       .training-log {
         background: rgba(0, 0, 0, 0.3);
         border-radius: 8px;
@@ -321,6 +343,8 @@ export class TrainingScreen {
       policyLoss = null,
       valueLoss = null,
       targetEpisodes = 1000,
+      stepsPerSecond = 0,
+      simSpeedMultiplier = 0,
     } = stats;
     
     // Update stat cards
@@ -329,7 +353,9 @@ export class TrainingScreen {
     document.getElementById('train-avg-reward').textContent = avgReward.toFixed(1);
     document.getElementById('train-steps').textContent = trainingSteps;
     
-    // Update details
+    // Update details - speed first
+    document.getElementById('train-speed').textContent = `${simSpeedMultiplier}x real-time`;
+    document.getElementById('train-sps').textContent = stepsPerSecond.toLocaleString();
     document.getElementById('train-exploration').textContent = `${(explorationRate * 100).toFixed(1)}%`;
     document.getElementById('train-buffer').textContent = bufferSize;
     document.getElementById('train-policy-loss').textContent = policyLoss !== null ? policyLoss.toFixed(4) : '-';

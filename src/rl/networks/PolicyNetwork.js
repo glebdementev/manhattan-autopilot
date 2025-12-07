@@ -12,6 +12,10 @@ export class PolicyNetwork {
     this.actionSize = actionSize;
     this.model = null;
     
+    // Reusable tensor for single predictions (avoid allocation overhead)
+    this._inputBuffer = null;
+    this._inputTensor = null;
+    
     this.build();
   }
   
@@ -53,16 +57,27 @@ export class PolicyNetwork {
   
   /**
    * Predict action from observation
+   * OPTIMIZED: Reuses input buffer to minimize tensor allocation
    * @param {Array} observation - Single observation
    * @returns {Array} - Action values
    */
   predict(observation) {
-    const obsTensor = tf.tensor2d([observation]);
-    const actionTensor = this.model.predict(obsTensor);
-    const action = actionTensor.dataSync();
+    // Initialize reusable buffer on first call
+    if (!this._inputBuffer) {
+      this._inputBuffer = new Float32Array(this.observationSize);
+    }
     
-    obsTensor.dispose();
-    actionTensor.dispose();
+    // Copy observation to buffer
+    for (let i = 0; i < observation.length; i++) {
+      this._inputBuffer[i] = observation[i];
+    }
+    
+    // Use tf.tidy to automatically clean up intermediate tensors
+    const action = tf.tidy(() => {
+      const obsTensor = tf.tensor2d(this._inputBuffer, [1, this.observationSize]);
+      const actionTensor = this.model.predict(obsTensor);
+      return actionTensor.dataSync();
+    });
     
     return Array.from(action);
   }

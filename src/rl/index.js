@@ -4,6 +4,17 @@
  * Main exports for the RL system
  */
 
+import * as tf from '@tensorflow/tfjs';
+
+// Initialize TensorFlow.js with optimal settings
+tf.env().set('WEBGL_DELETE_TEXTURE_THRESHOLD', 0);
+tf.env().set('WEBGL_FORCE_F16_TEXTURES', true); // Use half-precision for speed
+
+// Log backend info
+tf.ready().then(() => {
+  console.log(`TensorFlow.js backend: ${tf.getBackend()}`);
+});
+
 // Main classes
 export { RLAgent } from './RLAgent.js';
 export { RLEnvironment } from './RLEnvironment.js';

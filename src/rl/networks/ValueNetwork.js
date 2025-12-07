@@ -11,6 +11,9 @@ export class ValueNetwork {
     this.observationSize = observationSize;
     this.model = null;
     
+    // Reusable buffer for single predictions
+    this._inputBuffer = null;
+    
     this.build();
   }
   
@@ -47,18 +50,27 @@ export class ValueNetwork {
   
   /**
    * Predict value from observation
+   * OPTIMIZED: Reuses input buffer to minimize tensor allocation
    * @param {Array} observation - Single observation
    * @returns {number} - State value
    */
   predict(observation) {
-    const obsTensor = tf.tensor2d([observation]);
-    const valueTensor = this.model.predict(obsTensor);
-    const value = valueTensor.dataSync()[0];
+    // Initialize reusable buffer on first call
+    if (!this._inputBuffer) {
+      this._inputBuffer = new Float32Array(this.observationSize);
+    }
     
-    obsTensor.dispose();
-    valueTensor.dispose();
+    // Copy observation to buffer
+    for (let i = 0; i < observation.length; i++) {
+      this._inputBuffer[i] = observation[i];
+    }
     
-    return value;
+    // Use tf.tidy to automatically clean up intermediate tensors
+    return tf.tidy(() => {
+      const obsTensor = tf.tensor2d(this._inputBuffer, [1, this.observationSize]);
+      const valueTensor = this.model.predict(obsTensor);
+      return valueTensor.dataSync()[0];
+    });
   }
   
   /**
