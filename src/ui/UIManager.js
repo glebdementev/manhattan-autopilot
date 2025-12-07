@@ -2,7 +2,7 @@
  * UI Manager - Main coordinator for all user interface elements
  * 
  * Modes:
- * - Simulation: Manual drone + optional ghost RL drone (when model loaded)
+ * - Simulation: Manual drone control or autopilot (when model loaded)
  * - Training: Offline training screen with progress stats
  */
 
@@ -106,13 +106,6 @@ export class UIManager extends EventEmitter {
       }
     });
     
-    // Radio buttons - camera target
-    document.querySelectorAll('input[name="camera-target"]').forEach(radio => {
-      radio.addEventListener('change', (e) => {
-        this.emit('cameraTargetChange', e.target.value);
-      });
-    });
-    
     // Checkboxes
     this.elements.lidarToggle.addEventListener('change', (e) => {
       this.emit('lidarToggle', e.target.checked);
@@ -133,18 +126,6 @@ export class UIManager extends EventEmitter {
    */
   updateDroneStats(speed, altitude, distToTarget) {
     StatsDisplay.updateDroneStats(this.elements, speed, altitude, distToTarget);
-  }
-
-  /**
-   * Update ghost drone stats
-   */
-  updateGhostStats(distToTarget, status = 'Active') {
-    if (this.elements.ghostDistValue) {
-      this.elements.ghostDistValue.textContent = distToTarget.toFixed(1);
-    }
-    if (this.elements.ghostStatus) {
-      this.elements.ghostStatus.textContent = status;
-    }
   }
 
   /**
@@ -183,20 +164,10 @@ export class UIManager extends EventEmitter {
   }
 
   /**
-   * Set model loaded state - shows ghost drone UI
+   * Set model loaded state
    */
   setModelLoaded(loaded) {
     this.hasLoadedModel = loaded;
-    
-    // Show/hide ghost section
-    if (this.elements.ghostSection) {
-      this.elements.ghostSection.style.display = loaded ? 'block' : 'none';
-    }
-    
-    // Show/hide camera section
-    if (this.elements.cameraSection) {
-      this.elements.cameraSection.style.display = loaded ? 'block' : 'none';
-    }
     
     // Update model status
     if (this.elements.modelStatus) {
@@ -232,24 +203,6 @@ export class UIManager extends EventEmitter {
    */
   logTraining(message, type = 'default') {
     this.trainingScreen.log(message, type);
-  }
-
-  /**
-   * Get current camera target
-   */
-  getCameraTarget() {
-    const radio = document.querySelector('input[name="camera-target"]:checked');
-    return radio ? radio.value : 'manual';
-  }
-  
-  /**
-   * Set camera target programmatically
-   */
-  setCameraTarget(target) {
-    const radio = document.querySelector(`input[name="camera-target"][value="${target}"]`);
-    if (radio) {
-      radio.checked = true;
-    }
   }
 
   /**

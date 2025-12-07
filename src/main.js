@@ -2,12 +2,11 @@
  * Main entry point - Drone RL Navigation Simulation
  * 
  * Modes:
- * - Simulation: Manual drone + optional ghost RL drone (when model loaded)
+ * - Simulation: Manual drone control or autopilot (when model loaded)
  * - Training: Offline RL training with progress UI
  */
 import {
   InputController,
-  GhostDroneController,
   BoundsEnforcer,
   TrainingController,
   EpisodeManager,
@@ -22,7 +21,6 @@ class Simulation {
     
     // Controllers
     this.inputController = null;
-    this.ghostController = null;
     this.boundsEnforcer = null;
     this.trainingController = null;
     this.episodeManager = null;
@@ -31,7 +29,6 @@ class Simulation {
     this.isRunning = false;
     this.lastTime = 0;
     this.currentSeed = 42;
-    this.cameraTarget = 'manual';
     
     // Performance
     this.frameCounter = 0;
@@ -42,7 +39,6 @@ class Simulation {
       update: 0,
       render: 0,
       envStep: 0,
-      ghostUpdate: 0,
       camera: 0,
       ui: 0,
     };
@@ -77,14 +73,14 @@ class Simulation {
     this.animate();
     
     console.log('Simulation initialized!');
-    console.log('Use WASD/QZ to fly. Load a model or train one to see the RL ghost drone.');
+    console.log('Use WASD/QZ to fly. Load a model or train one for autopilot.');
   }
 
   /**
    * Setup controllers
    */
   setupControllers() {
-    const { drone, ghostDrone, rlAgent, rlEnvironment, forestGenerator, ui } = this.components;
+    const { drone, rlAgent, rlEnvironment, forestGenerator, ui } = this.components;
     
     // Input controller
     this.inputController = new InputController();
@@ -95,14 +91,6 @@ class Simulation {
     
     // Episode manager
     this.episodeManager = new EpisodeManager(rlEnvironment, ui);
-    this.episodeManager.onReset = () => {
-      if (this.trainingController?.hasLoadedModel) {
-        this.ghostController.syncToMainDrone(drone);
-      }
-    };
-    
-    // Ghost drone controller
-    this.ghostController = new GhostDroneController(ghostDrone, rlAgent, rlEnvironment);
     
     // Training controller
     this.trainingController = new TrainingController(rlAgent, rlEnvironment, forestGenerator);
@@ -114,10 +102,6 @@ class Simulation {
       ui.hideTrainingScreen();
       this.resumeSimulation();
     };
-    this.trainingController.onModelLoaded = () => {
-      ghostDrone.setVisible(true);
-      this.ghostController.syncToMainDrone(drone);
-    };
   }
 
   /**
@@ -128,11 +112,6 @@ class Simulation {
     
     ui.on('newTarget', () => this.episodeManager.reset());
     ui.on('reset', () => this.episodeManager.reset());
-    
-    ui.on('cameraTargetChange', (target) => {
-      this.cameraTarget = target;
-      console.log(`Camera following: ${target}`);
-    });
     
     ui.on('lidarToggle', (enabled) => {
       lidar.setVisualizationEnabled(enabled);
@@ -201,7 +180,6 @@ class Simulation {
     console.log(`[PERF] Avg over ${n} frames:`,
       `update=${(this.perfLog.update / n).toFixed(2)}ms`,
       `(env=${(this.perfLog.envStep / n).toFixed(2)}ms`,
-      `ghost=${(this.perfLog.ghostUpdate / n).toFixed(2)}ms`,
       `cam=${(this.perfLog.camera / n).toFixed(2)}ms`,
       `ui=${(this.perfLog.ui / n).toFixed(2)}ms)`,
       `render=${(this.perfLog.render / n).toFixed(2)}ms`
@@ -210,7 +188,6 @@ class Simulation {
     this.perfLog.update = 0;
     this.perfLog.render = 0;
     this.perfLog.envStep = 0;
-    this.perfLog.ghostUpdate = 0;
     this.perfLog.camera = 0;
     this.perfLog.ui = 0;
   }
@@ -219,7 +196,7 @@ class Simulation {
    * Update simulation state
    */
   update(dt) {
-    const { drone, ghostDrone, rlEnvironment, rlAgent } = this.components;
+    const { drone, rlEnvironment, rlAgent } = this.components;
     
     let t0, t1;
     
@@ -252,15 +229,6 @@ class Simulation {
     
     this.episodeManager.setObservation(observation);
     
-    // Update ghost drone if model loaded
-    if (this.trainingController.hasLoadedModel && ghostDrone.isVisible()) {
-      t0 = performance.now();
-      this.ghostController.update(dt, drone);
-      this.boundsEnforcer.enforce(ghostDrone);
-      t1 = performance.now();
-      this.perfLog.ghostUpdate += t1 - t0;
-    }
-    
     // Handle episode end
     if (done) {
       this.episodeManager.handleEnd(info, drone);
@@ -269,7 +237,7 @@ class Simulation {
     // Update reward display (every frame for responsiveness)
     this.updateRewardDisplay(info);
     
-    // Keep drones in bounds
+    // Keep drone in bounds
     this.boundsEnforcer.enforce(drone);
     
     // Update camera
@@ -288,17 +256,11 @@ class Simulation {
   }
 
   /**
-   * Update camera to follow selected target
+   * Update camera to follow drone
    */
   updateCamera() {
-    const { drone, ghostDrone, sceneManager } = this.components;
-    
-    let targetDrone = drone;
-    if (this.cameraTarget === 'ghost' && this.trainingController.hasLoadedModel) {
-      targetDrone = ghostDrone;
-    }
-    
-    const state = targetDrone.getState();
+    const { drone, sceneManager } = this.components;
+    const state = drone.getState();
     sceneManager.followTarget(state.x, state.y, state.z, state.yaw, 'chase');
   }
 
@@ -306,19 +268,13 @@ class Simulation {
    * Update UI displays
    */
   updateUI() {
-    const { drone, rlEnvironment, ui, lidar } = this.components;
+    const { drone, rlEnvironment, ui } = this.components;
     
     const state = drone.getState();
     const distToTarget = rlEnvironment.getDistanceToTarget();
     
     // Drone stats
     ui.updateDroneStats(state.speed, state.y, distToTarget);
-    
-    // Ghost drone stats
-    if (this.trainingController.hasLoadedModel) {
-      const ghostDist = this.ghostController.getDistanceToTarget();
-      ui.updateGhostStats(ghostDist, 'Active');
-    }
     
     // Update observation display (what the model sees)
     this.updateObservationDisplay();

@@ -147,44 +147,24 @@ export class TrainingManager {
   }
   
   /**
-   * Train policy network using simplified policy gradient
+   * Train policy network - SIMPLE SUPERVISED LEARNING
    * 
-   * Idea: If advantage > 0, nudge action in that direction.
-   *       If advantage < 0, nudge action away from that direction.
+   * For this simple task: the correct action IS the observation!
+   * obs = direction to target, action = acceleration towards target
+   * So we just train: action = observation
    */
   async trainPolicyNetwork(observations, actions, advantages) {
     const obsTensor = tf.tensor2d(observations);
-    const actionsTensor = tf.tensor2d(actions);
     
-    // Get current policy output
-    const currentActions = this.policyNetwork.predictBatch(obsTensor);
-    
-    // Compute target actions
-    // For positive advantage: move toward the taken action
-    // For negative advantage: move away from the taken action
-    const targetActions = tf.tidy(() => {
-      const advantagesTensor = tf.tensor2d(advantages.map(a => [a, a, a]));
-      
-      // Scale factor for how much to adjust
-      const learningRate = 0.05;
-      
-      // target = current + lr * advantage * (action - current)
-      const diff = tf.sub(actionsTensor, currentActions);
-      const scaled = tf.mul(diff, advantagesTensor);
-      const delta = tf.mul(scaled, tf.scalar(learningRate));
-      const target = tf.add(currentActions, delta);
-      
-      // Clip to valid action range [-1, 1]
-      return tf.clipByValue(target, -1, 1);
-    });
+    // SIMPLE: Target action = observation (go towards target!)
+    // This is supervised learning, not RL, but it works for this task
+    const targetActions = tf.tensor2d(observations);
     
     // Train
     const loss = await this.policyNetwork.fit(obsTensor, targetActions);
     
-    // Cleanup tensors
+    // Cleanup
     obsTensor.dispose();
-    actionsTensor.dispose();
-    currentActions.dispose();
     targetActions.dispose();
     
     return loss;

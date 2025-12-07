@@ -76,18 +76,10 @@ export class OfflineTrainer {
   }
   
   /**
-   * Suppress console.log during training
+   * Don't suppress logging during training - we need to debug
    */
   suppressLogging() {
-    this._originalConsoleLog = console.log;
-    console.log = (...args) => {
-      const msg = args[0]?.toString() || '';
-      if (msg.includes('Training') || msg.includes('Episode') || 
-          msg.includes('Model') || msg.includes('curriculum') ||
-          msg.includes('Level')) {
-        this._originalConsoleLog.apply(console, args);
-      }
-    };
+    // Don't suppress - keep all logs for debugging
   }
   
   /**

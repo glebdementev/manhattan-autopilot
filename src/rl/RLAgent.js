@@ -49,17 +49,18 @@ export class RLAgent {
     // Get neural network action
     const action = this.policyNetwork.predict(observation);
     
-    // Debug logging
+    // Debug logging - more frequent during training
     this.debugCounter++;
-    if (this.debugCounter <= 5 || this.debugCounter % 100 === 0) {
-      console.log(`[ACTION #${this.debugCounter}]`,
-        `obs=[${observation.map(v => v.toFixed(2)).join(', ')}]`,
-        `→ action=[${action.map(v => v.toFixed(2)).join(', ')}]`
-      );
+    if (this.debugCounter <= 20 || this.debugCounter % 500 === 0) {
+      console.log(`[ACTION] obs=[${observation.map(v => v.toFixed(2)).join(', ')}] → raw=[${action.map(v => v.toFixed(2)).join(', ')}]`);
     }
     
     if (training) {
-      return this.explorationManager.addNoise(action, true);
+      const noisyAction = this.explorationManager.addNoise(action, true);
+      if (this.debugCounter <= 20 || this.debugCounter % 500 === 0) {
+        console.log(`[ACTION+NOISE] → [${noisyAction.map(v => v.toFixed(2)).join(', ')}]`);
+      }
+      return noisyAction;
     }
     
     return action;

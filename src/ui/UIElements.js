@@ -11,7 +11,7 @@ export function createInfoPanelHTML() {
       <h2>🚁 Drone Navigator</h2>
       
       <div class="section">
-        <h3>Manual Drone</h3>
+        <h3>Drone</h3>
         <div class="stat">
           <span class="label">Speed:</span>
           <span id="speed-value">0.0</span> m/s
@@ -26,18 +26,6 @@ export function createInfoPanelHTML() {
         </div>
       </div>
       
-      <div class="section" id="ghost-section" style="display: none;">
-        <h3>👻 RL Ghost Drone</h3>
-        <div class="stat">
-          <span class="label">Status:</span>
-          <span id="ghost-status">No model loaded</span>
-        </div>
-        <div class="stat">
-          <span class="label">To Target:</span>
-          <span id="ghost-dist-value">-</span> m
-        </div>
-      </div>
-      
       <div class="section">
         <h3>🧠 RL Model</h3>
         <div class="stat">
@@ -49,20 +37,6 @@ export function createInfoPanelHTML() {
           <button id="btn-import">Load Model</button>
         </div>
         <input type="file" id="model-file-input" accept=".json" style="display: none;">
-      </div>
-      
-      <div class="section" id="camera-section" style="display: none;">
-        <h3>📷 Camera Follow</h3>
-        <div class="radio-group">
-          <label>
-            <input type="radio" name="camera-target" value="manual" checked>
-            🎮 Manual Drone
-          </label>
-          <label>
-            <input type="radio" name="camera-target" value="ghost">
-            👻 Ghost RL
-          </label>
-        </div>
       </div>
       
       <div class="section">
@@ -233,11 +207,6 @@ export function createUIContainer() {
     altitudeValue: document.getElementById('altitude-value'),
     targetDistValue: document.getElementById('target-dist-value'),
     
-    // Ghost drone stats
-    ghostSection: document.getElementById('ghost-section'),
-    ghostStatus: document.getElementById('ghost-status'),
-    ghostDistValue: document.getElementById('ghost-dist-value'),
-    
     // Model
     modelStatus: document.getElementById('model-status'),
     
@@ -250,9 +219,6 @@ export function createUIContainer() {
     
     // Toggles
     lidarToggle: document.getElementById('lidar-toggle'),
-    
-    // Sections
-    cameraSection: document.getElementById('camera-section'),
     
     // Reward indicator
     rewardIndicator: document.getElementById('reward-indicator'),

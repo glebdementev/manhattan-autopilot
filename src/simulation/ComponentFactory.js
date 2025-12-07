@@ -1,6 +1,5 @@
 import { ForestGenerator } from '../forest/ForestGenerator.js';
 import { Drone } from '../vehicle/Drone.js';
-import { GhostDrone } from '../vehicle/GhostDrone.js';
 import { Lidar } from '../vehicle/Lidar.js';
 import { RLEnvironment } from '../rl/RLEnvironment.js';
 import { RLAgent } from '../rl/RLAgent.js';
@@ -37,12 +36,6 @@ export class ComponentFactory {
     // LiDAR
     components.lidar = this.createLidar(
       components.drone, 
-      forestGenerator, 
-      components.sceneManager
-    );
-    
-    // Ghost drone
-    components.ghostDrone = this.createGhostDrone(
       forestGenerator, 
       components.sceneManager
     );
@@ -112,22 +105,10 @@ export class ComponentFactory {
   }
 
   /**
-   * Create ghost drone
-   */
-  static createGhostDrone(forestGenerator, sceneManager) {
-    console.log('Creating ghost drone...');
-    const ghostDrone = new GhostDrone();
-    ghostDrone.setCollisionChecker(forestGenerator);
-    ghostDrone.setVisible(false);
-    sceneManager.add(ghostDrone.getMesh());
-    return ghostDrone;
-  }
-
-  /**
    * Regenerate forest with new seed
    */
   static regenerateForest(components, newSeed) {
-    const { sceneManager, forestGenerator: oldForest, drone, ghostDrone, lidar, rlEnvironment } = components;
+    const { sceneManager, forestGenerator: oldForest, drone, lidar, rlEnvironment } = components;
     
     // Remove old forest
     if (oldForest) {
@@ -141,7 +122,6 @@ export class ComponentFactory {
     // Update references
     rlEnvironment.setForest(forestGenerator);
     drone.setCollisionChecker(forestGenerator);
-    ghostDrone.setCollisionChecker(forestGenerator);
     // Update lidar with new obstacles and terrain
     lidar.setObstacles(forestGenerator.getObstacles());
     lidar.setTerrainHeightFn((x, z) => forestGenerator.getTerrainHeight(x, z));
@@ -150,4 +130,3 @@ export class ComponentFactory {
     return { forestGenerator, raycastTargets };
   }
 }
-
