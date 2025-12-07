@@ -48,6 +48,17 @@ export class RLEnvironment {
     
     // Previous distance for reward calculation
     this.previousDistanceToTarget = 0;
+    
+    // Performance logging
+    this.perfLog = {
+      droneUpdate: 0,
+      lidarScan: 0,
+      reward: 0,
+      termination: 0,
+      observation: 0,
+    };
+    this.perfLogCounter = 0;
+    this.perfLogInterval = 60;
   }
   
   /**
@@ -63,7 +74,9 @@ export class RLEnvironment {
   setForest(forest) {
     this.forest = forest;
     this.targetManager.setForest(forest);
-    // Update lidar raycast targets
+    // Update lidar with new forest data
+    this.lidar.setObstacles(forest.getObstacles());
+    this.lidar.setTerrainHeightFn((x, z) => forest.getTerrainHeight(x, z));
     this.lidar.setRaycastTargets(forest.getRaycastTargets());
   }
   
@@ -128,6 +141,8 @@ export class RLEnvironment {
    * @returns {Object} - { observation, reward, done, info }
    */
   step(action, dt) {
+    let t0, t1;
+    
     // Apply action
     const thrustX = Math.max(-1, Math.min(1, action[0]));
     const thrustY = Math.max(-1, Math.min(1, action[1]));
@@ -139,7 +154,10 @@ export class RLEnvironment {
     const prevDist = this.getDistanceToTarget();
     
     // Update drone physics
+    t0 = performance.now();
     this.drone.update(dt);
+    t1 = performance.now();
+    this.perfLog.droneUpdate += t1 - t0;
     
     // Update lidar target info for visualization
     const target = this.targetManager.getPosition();
@@ -147,27 +165,65 @@ export class RLEnvironment {
     this.lidar.setTargetVisible(this.canSeeTarget());
     
     // Scan lidar
+    t0 = performance.now();
     this.lidar.scan();
+    t1 = performance.now();
+    this.perfLog.lidarScan += t1 - t0;
     
     // Calculate reward
+    t0 = performance.now();
     const { reward, breakdown: rewardBreakdown } = this.calculateReward(prevDist);
     this.episodeStats.recordStep(reward);
+    t1 = performance.now();
+    this.perfLog.reward += t1 - t0;
     
     // Check termination conditions
+    t0 = performance.now();
     const { done, info } = this.checkTermination();
     info.rewardBreakdown = rewardBreakdown;
     info.episodeReward = this.episodeStats.getStats().currentEpisodeReward;
     info.episodeSteps = this.episodeStats.getStats().currentEpisodeSteps;
+    t1 = performance.now();
+    this.perfLog.termination += t1 - t0;
     
     // Get new observation
+    t0 = performance.now();
     const observation = this.getObservation();
+    t1 = performance.now();
+    this.perfLog.observation += t1 - t0;
     
     // Update stats on episode end
     if (done) {
       this.episodeStats.endEpisode(info.success);
     }
     
+    // Log performance periodically
+    this.perfLogCounter++;
+    if (this.perfLogCounter % this.perfLogInterval === 0) {
+      this.logPerformance();
+    }
+    
     return { observation, reward, done, info };
+  }
+  
+  /**
+   * Log performance metrics for RLEnvironment.step
+   */
+  logPerformance() {
+    const n = this.perfLogInterval;
+    console.log(`[PERF RLEnv] Avg over ${n} steps:`,
+      `drone=${(this.perfLog.droneUpdate / n).toFixed(2)}ms`,
+      `lidar=${(this.perfLog.lidarScan / n).toFixed(2)}ms`,
+      `reward=${(this.perfLog.reward / n).toFixed(2)}ms`,
+      `term=${(this.perfLog.termination / n).toFixed(2)}ms`,
+      `obs=${(this.perfLog.observation / n).toFixed(2)}ms`
+    );
+    // Reset counters
+    this.perfLog.droneUpdate = 0;
+    this.perfLog.lidarScan = 0;
+    this.perfLog.reward = 0;
+    this.perfLog.termination = 0;
+    this.perfLog.observation = 0;
   }
   
   /**

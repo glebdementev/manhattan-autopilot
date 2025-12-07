@@ -37,7 +37,7 @@ export class ComponentFactory {
     // LiDAR
     components.lidar = this.createLidar(
       components.drone, 
-      raycastTargets, 
+      forestGenerator, 
       components.sceneManager
     );
     
@@ -96,9 +96,13 @@ export class ComponentFactory {
   /**
    * Create LiDAR
    */
-  static createLidar(drone, raycastTargets, sceneManager) {
+  static createLidar(drone, forestGenerator, sceneManager) {
     const lidar = new Lidar(drone);
-    lidar.setRaycastTargets(raycastTargets);
+    // Set fast raycaster data
+    lidar.setObstacles(forestGenerator.getObstacles());
+    lidar.setTerrainHeightFn((x, z) => forestGenerator.getTerrainHeight(x, z));
+    // Legacy Three.js raycast targets (kept for compatibility)
+    lidar.setRaycastTargets(forestGenerator.getRaycastTargets());
     sceneManager.add(lidar.getVisualGroup());
     return lidar;
   }
@@ -134,6 +138,9 @@ export class ComponentFactory {
     rlEnvironment.setForest(forestGenerator);
     drone.setCollisionChecker(forestGenerator);
     ghostDrone.setCollisionChecker(forestGenerator);
+    // Update lidar with new obstacles and terrain
+    lidar.setObstacles(forestGenerator.getObstacles());
+    lidar.setTerrainHeightFn((x, z) => forestGenerator.getTerrainHeight(x, z));
     lidar.setRaycastTargets(raycastTargets);
     
     return { forestGenerator, raycastTargets };

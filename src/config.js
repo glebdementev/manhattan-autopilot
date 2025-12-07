@@ -52,7 +52,7 @@ export const LIDAR = {
   NUM_SCAN_RAYS: 72,              // Dense scan (5° per ray for 360° coverage)
   HORIZONTAL_FOV: Math.PI * 2,    // 360 degrees horizontal scan
   NUM_CLOSEST_OBSTACLES: 4,       // Return 4 closest obstacles
-  MIN_ANGULAR_SEPARATION: Math.PI / 18, // 10 degrees minimum between obstacles
+  MIN_ANGULAR_SEPARATION: Math.PI / 9, // 20 degrees minimum between obstacles
   MAX_RANGE: 25,                  // Maximum detection range
   VISUALIZE: false,               // DISABLED by default for performance
   RAY_COLOR: 0x00ffaa,            // Color of LiDAR rays

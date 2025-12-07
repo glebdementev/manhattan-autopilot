@@ -35,6 +35,17 @@ class Simulation {
     // Performance
     this.frameCounter = 0;
     this.uiUpdateInterval = 30;
+    
+    // Performance logging
+    this.perfLog = {
+      update: 0,
+      render: 0,
+      envStep: 0,
+      ghostUpdate: 0,
+      camera: 0,
+      ui: 0,
+    };
+    this.perfLogInterval = 60; // Log every N frames
   }
 
   /**
@@ -161,11 +172,46 @@ class Simulation {
     
     this.frameCounter++;
     
+    let t0, t1;
+    
     if (!this.episodeManager.isInRegeneration()) {
+      t0 = performance.now();
       this.update(deltaTime);
+      t1 = performance.now();
+      this.perfLog.update += t1 - t0;
     }
     
+    t0 = performance.now();
     this.components.sceneManager.render();
+    t1 = performance.now();
+    this.perfLog.render += t1 - t0;
+    
+    // Log performance periodically
+    if (this.frameCounter % this.perfLogInterval === 0) {
+      this.logPerformance();
+    }
+  }
+  
+  /**
+   * Log performance metrics
+   */
+  logPerformance() {
+    const n = this.perfLogInterval;
+    console.log(`[PERF] Avg over ${n} frames:`,
+      `update=${(this.perfLog.update / n).toFixed(2)}ms`,
+      `(env=${(this.perfLog.envStep / n).toFixed(2)}ms`,
+      `ghost=${(this.perfLog.ghostUpdate / n).toFixed(2)}ms`,
+      `cam=${(this.perfLog.camera / n).toFixed(2)}ms`,
+      `ui=${(this.perfLog.ui / n).toFixed(2)}ms)`,
+      `render=${(this.perfLog.render / n).toFixed(2)}ms`
+    );
+    // Reset counters
+    this.perfLog.update = 0;
+    this.perfLog.render = 0;
+    this.perfLog.envStep = 0;
+    this.perfLog.ghostUpdate = 0;
+    this.perfLog.camera = 0;
+    this.perfLog.ui = 0;
   }
 
   /**
@@ -174,17 +220,26 @@ class Simulation {
   update(dt) {
     const { drone, ghostDrone, rlEnvironment } = this.components;
     
+    let t0, t1;
+    
     // Get manual action
     const action = this.inputController.getAction();
     
     // Take step in environment
+    t0 = performance.now();
     const { observation, done, info } = rlEnvironment.step(action, dt);
+    t1 = performance.now();
+    this.perfLog.envStep += t1 - t0;
+    
     this.episodeManager.setObservation(observation);
     
     // Update ghost drone if model loaded
     if (this.trainingController.hasLoadedModel && ghostDrone.isVisible()) {
+      t0 = performance.now();
       this.ghostController.update(dt, drone);
       this.boundsEnforcer.enforce(ghostDrone);
+      t1 = performance.now();
+      this.perfLog.ghostUpdate += t1 - t0;
     }
     
     // Handle episode end
@@ -196,11 +251,17 @@ class Simulation {
     this.boundsEnforcer.enforce(drone);
     
     // Update camera
+    t0 = performance.now();
     this.updateCamera();
+    t1 = performance.now();
+    this.perfLog.camera += t1 - t0;
     
     // Update UI periodically
     if (this.frameCounter % this.uiUpdateInterval === 0) {
+      t0 = performance.now();
       this.updateUI();
+      t1 = performance.now();
+      this.perfLog.ui += t1 - t0;
     }
   }
 

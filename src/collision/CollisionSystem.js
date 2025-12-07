@@ -107,6 +107,7 @@ export class CollisionSystem {
   /**
    * Swept collision detection - checks multiple points along a movement path
    * Prevents tunneling through thin obstacles
+   * OPTIMIZED: Skip intermediate checks for small movements
    */
   checkSweptCollision(startX, startY, startZ, endX, endY, endZ) {
     const dx = endX - startX;
@@ -118,9 +119,24 @@ export class CollisionSystem {
       return { collided: false, type: null, t: 1, position: { x: endX, y: endY, z: endZ } };
     }
     
-    // Step size based on smallest drone dimension for safety
+    // For small movements, just check the end position (much faster)
     const minDimension = Math.min(this.droneSize.x, this.droneSize.y, this.droneSize.z);
-    const stepSize = minDimension * 0.3;
+    if (moveDistance < minDimension * 0.5) {
+      const collision = this.checkCollision(endX, endY, endZ);
+      if (collision.collided) {
+        return {
+          collided: true,
+          type: collision.type,
+          t: 1,
+          position: { x: endX, y: endY, z: endZ },
+          penetration: collision.penetration,
+        };
+      }
+      return { collided: false, type: null, t: 1, position: { x: endX, y: endY, z: endZ }, penetration: 0 };
+    }
+    
+    // For larger movements, use stepped collision detection
+    const stepSize = minDimension * 0.4; // Slightly larger steps
     const numSteps = Math.max(2, Math.ceil(moveDistance / stepSize));
     
     // Check collision at each point along the path

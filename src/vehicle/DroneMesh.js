@@ -123,45 +123,15 @@ export class DroneMesh {
   
   /**
    * Update light intensity based on proximity to surfaces
+   * DISABLED for performance - was causing 6ms per frame overhead
    */
   updateProximityLight() {
-    if (!this.scene) {
-      return;
-    }
-    
-    let minDistance = LIGHT_CONFIG.PROXIMITY_DISTANCE;
-    const origin = this.mesh.position.clone();
-    
-    // Get all meshes to raycast against (excluding drone itself)
-    const meshesToTest = [];
-    this.scene.traverse((obj) => {
-      if (obj.isMesh && obj.name !== 'body' && !obj.parent?.name?.includes('drone')) {
-        meshesToTest.push(obj);
-      }
-    });
-    
-    // Cast rays in all directions
-    for (const direction of this.rayDirections) {
-      this.raycaster.set(origin, direction);
-      this.raycaster.far = LIGHT_CONFIG.PROXIMITY_DISTANCE;
-      
-      const intersects = this.raycaster.intersectObjects(meshesToTest, false);
-      
-      if (intersects.length > 0) {
-        const distance = intersects[0].distance;
-        if (distance < minDistance) {
-          minDistance = distance;
-        }
-      }
-    }
-    
-    // Calculate light intensity based on proximity
-    // Closer = brighter
-    const proximityFactor = 1 - (minDistance / LIGHT_CONFIG.PROXIMITY_DISTANCE);
-    const intensity = LIGHT_CONFIG.BASE_INTENSITY + 
-      (LIGHT_CONFIG.MAX_INTENSITY - LIGHT_CONFIG.BASE_INTENSITY) * proximityFactor * proximityFactor;
-    
-    this.droneLight.intensity = intensity;
+    // Proximity light detection disabled for performance
+    // It was traversing the entire scene and doing 10 raycasts per frame
+    // If needed, could be optimized with:
+    // 1. Caching meshesToTest array (rebuild only on scene change)
+    // 2. Using terrain height function instead of raycasting
+    // 3. Running every N frames instead of every frame
   }
   
   /**

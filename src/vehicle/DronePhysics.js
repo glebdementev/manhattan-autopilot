@@ -42,6 +42,11 @@ export class DronePhysics {
     
     // Legacy collision checker reference
     this.collisionChecker = null;
+    
+    // Performance logging
+    this.perfLog = { currentCheck: 0, swept: 0, mesh: 0 };
+    this.perfLogCounter = 0;
+    this.perfLogInterval = 60;
   }
   
   /**
@@ -94,6 +99,8 @@ export class DronePhysics {
    * @returns {Object} - { moved: boolean, dx, dy, dz } for mesh update
    */
   update(dt) {
+    let t0, t1;
+    
     if (this.collisionFrozen) {
       this.lastCollision = true;
       return { moved: false };
@@ -103,7 +110,11 @@ export class DronePhysics {
     this.lastCollisionType = null;
     
     // Check if already in collision
+    t0 = performance.now();
     const currentCollision = this.collisionSystem.checkCollision(this.x, this.y, this.z);
+    t1 = performance.now();
+    this.perfLog.currentCheck += t1 - t0;
+    
     if (currentCollision.collided) {
       this.lastCollision = true;
       this.lastCollisionType = currentCollision.type;
@@ -158,10 +169,13 @@ export class DronePhysics {
     
     // Swept collision detection
     if (moveDistance > 0.0001) {
+      t0 = performance.now();
       const sweptResult = this.collisionSystem.checkSweptCollision(
         this.x, this.y, this.z,
         this.x + dx, this.y + dy, this.z + dz
       );
+      t1 = performance.now();
+      this.perfLog.swept += t1 - t0;
       
       if (sweptResult.collided) {
         this.lastCollision = true;
@@ -183,6 +197,18 @@ export class DronePhysics {
     this.y += dy;
     this.z += dz;
     this.distanceTraveled += moveDistance;
+    
+    // Log performance
+    this.perfLogCounter++;
+    if (this.perfLogCounter % this.perfLogInterval === 0) {
+      const n = this.perfLogInterval;
+      console.log(`[PERF DronePhysics] Avg over ${n}:`,
+        `currentCheck=${(this.perfLog.currentCheck / n).toFixed(2)}ms`,
+        `swept=${(this.perfLog.swept / n).toFixed(2)}ms`
+      );
+      this.perfLog.currentCheck = 0;
+      this.perfLog.swept = 0;
+    }
     
     return { moved: true, dx, dy, dz };
   }

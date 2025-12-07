@@ -4,17 +4,26 @@
  * - Dense horizontal sweep for obstacle detection
  * - Returns N closest obstacles with direction + distance (min angular separation)
  * - Nadir (downward) and zenith (upward) rays for altitude awareness
+ * 
+ * OPTIMIZED: Uses custom FastRaycaster instead of Three.js raycaster
  */
 import * as THREE from 'three';
 import { LIDAR } from '../config.js';
+import { FastRaycaster } from './FastRaycaster.js';
 
 export class Lidar {
   constructor(drone) {
     this.drone = drone;
+    
+    // Use fast custom raycaster instead of Three.js
+    this.fastRaycaster = new FastRaycaster();
+    this.fastRaycaster.setMaxRange(LIDAR.MAX_RANGE);
+    
+    // Legacy Three.js raycaster (kept for potential fallback)
     this.raycaster = new THREE.Raycaster();
     this.raycaster.far = LIDAR.MAX_RANGE;
     
-    // Raycast targets (set externally)
+    // Raycast targets (legacy, not used with FastRaycaster)
     this.raycastTargets = [];
     
     // Dense scan rays for obstacle detection
@@ -71,10 +80,26 @@ export class Lidar {
   }
   
   /**
-   * Set raycast targets
+   * Set raycast targets (legacy - for Three.js raycaster)
    */
   setRaycastTargets(targets) {
     this.raycastTargets = targets;
+  }
+  
+  /**
+   * Set obstacle data for fast raycasting
+   * @param {Array} obstacles - [{type, x, z, radius, minY, maxY}, ...]
+   */
+  setObstacles(obstacles) {
+    this.fastRaycaster.clearObstacles();
+    this.fastRaycaster.addObstacles(obstacles);
+  }
+  
+  /**
+   * Set terrain height function for ground raycasting
+   */
+  setTerrainHeightFn(fn) {
+    this.fastRaycaster.setTerrainHeightFn(fn);
   }
   
   /**
@@ -211,7 +236,7 @@ export class Lidar {
   }
 
   /**
-   * Perform 3D LiDAR scan using Three.js raycasting
+   * Perform 3D LiDAR scan using FastRaycaster (optimized)
    * Returns the N closest obstacles with minimum angular separation
    */
   scan() {
@@ -225,8 +250,6 @@ export class Lidar {
     const cosYaw = Math.cos(droneYaw);
     const sinYaw = Math.sin(droneYaw);
     
-    this._origin.set(droneX, droneY, droneZ);
-    
     // Collect all horizontal hits with angles
     const horizontalHits = [];
     
@@ -235,36 +258,34 @@ export class Lidar {
       const localDir = this.rayDirections[i];
       
       // Transform direction from local to world space (rotate by yaw)
+      let worldDirX, worldDirY, worldDirZ;
       if (i === this.nadirIndex || i === this.zenithIndex) {
-        this._direction.copy(localDir);
+        worldDirX = localDir.x;
+        worldDirY = localDir.y;
+        worldDirZ = localDir.z;
       } else {
-        this._direction.set(
-          localDir.x * cosYaw + localDir.z * sinYaw,
-          localDir.y,
-          -localDir.x * sinYaw + localDir.z * cosYaw
-        );
+        worldDirX = localDir.x * cosYaw + localDir.z * sinYaw;
+        worldDirY = localDir.y;
+        worldDirZ = -localDir.x * sinYaw + localDir.z * cosYaw;
       }
       
       // Store world direction for external use
-      this.worldDirections[i].copy(this._direction);
+      this.worldDirections[i].set(worldDirX, worldDirY, worldDirZ);
       
-      // Perform Three.js raycast
-      this.raycaster.set(this._origin, this._direction);
-      const intersections = this.raycaster.intersectObjects(this.raycastTargets, false);
+      // Perform fast raycast
+      const result = this.fastRaycaster.cast(
+        droneX, droneY, droneZ,
+        worldDirX, worldDirY, worldDirZ
+      );
       
-      let hitDistance = LIDAR.MAX_RANGE;
-      let hitPoint = null;
+      const hitDistance = result.distance;
       
-      if (intersections.length > 0) {
-        const hit = intersections[0];
-        hitDistance = hit.distance;
-        hitPoint = hit.point;
-        
+      if (result.hit && result.point) {
         this.hitPoints.push({
-          x: hit.point.x,
-          y: hit.point.y,
-          z: hit.point.z,
-          distance: hit.distance,
+          x: result.point.x,
+          y: result.point.y,
+          z: result.point.z,
+          distance: result.distance,
           rayIndex: i,
           isNadir: i === this.nadirIndex,
           isZenith: i === this.zenithIndex,
@@ -277,8 +298,8 @@ export class Lidar {
             angle,
             distance: hitDistance,
             rayIndex: i,
-            hitPoint: hitPoint.clone(),
-            worldDir: this._direction.clone(),
+            hitPoint: result.point,
+            worldDir: { x: worldDirX, y: worldDirY, z: worldDirZ },
           });
         }
       }

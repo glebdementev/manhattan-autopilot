@@ -30,6 +30,11 @@ export class ForestGenerator {
     
     // Raycast targets (simplified)
     this.raycastTargets = [];
+    
+    // Terrain height cache for performance
+    this.heightCache = new Map();
+    this.heightCacheResolution = 0.5; // Cache resolution in meters
+    this.heightCacheMaxSize = 10000;
   }
 
   /**
@@ -51,12 +56,44 @@ export class ForestGenerator {
   }
 
   /**
-   * Get terrain height at a given world position
+   * Get terrain height at a given world position (cached)
    */
   getTerrainHeight(x, z) {
+    // Quantize position for cache lookup
+    const res = this.heightCacheResolution;
+    const qx = Math.round(x / res) * res;
+    const qz = Math.round(z / res) * res;
+    const key = `${qx},${qz}`;
+    
+    // Check cache
+    let h = this.heightCache.get(key);
+    if (h !== undefined) {
+      return h;
+    }
+    
+    // Compute height
     const scale = FOREST.TERRAIN_SCALE;
     const height = FOREST.TERRAIN_HEIGHT;
-    return this.perlin.fbm(x * scale, z * scale, 3, 2, 0.5) * height;
+    h = this.perlin.fbm(qx * scale, qz * scale, 3, 2, 0.5) * height;
+    
+    // Store in cache (with size limit)
+    if (this.heightCache.size >= this.heightCacheMaxSize) {
+      // Clear oldest entries (simple strategy: clear half)
+      const entries = Array.from(this.heightCache.keys());
+      for (let i = 0; i < entries.length / 2; i++) {
+        this.heightCache.delete(entries[i]);
+      }
+    }
+    this.heightCache.set(key, h);
+    
+    return h;
+  }
+  
+  /**
+   * Clear terrain height cache (call on regeneration)
+   */
+  clearHeightCache() {
+    this.heightCache.clear();
   }
 
   /**

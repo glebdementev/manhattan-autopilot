@@ -7,4 +7,5 @@ export { DroneMesh } from './DroneMesh.js';
 export { DroneState } from './DroneState.js';
 export { GhostDrone } from './GhostDrone.js';
 export { Lidar } from './Lidar.js';
+export { FastRaycaster } from './FastRaycaster.js';
 
