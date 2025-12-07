@@ -1,8 +1,11 @@
 /**
  * Curriculum Manager for Progressive Training
  * 
- * Starts with trivially easy tasks and gradually increases difficulty.
- * Key insight: Keep the SAME target until success, then make it slightly harder.
+ * Key principles:
+ * - FIXED target size (2m radius) - always the same
+ * - Keep SAME target until success (many retries allowed)
+ * - Require MANY successes on DIFFERENT targets to advance
+ * - Gradual distance increase
  */
 
 export class CurriculumManager {
@@ -10,24 +13,28 @@ export class CurriculumManager {
     // Current difficulty level (0 = easiest)
     this.level = 0;
     
-    // Curriculum stages
+    // Curriculum stages - ONLY distance changes, target radius is ALWAYS 1.0 (2m diameter)
     this.stages = [
-      { minDist: 3,  maxDist: 5,  targetRadius: 3.0, name: 'trivial' },
-      { minDist: 5,  maxDist: 8,  targetRadius: 2.5, name: 'very_easy' },
-      { minDist: 8,  maxDist: 12, targetRadius: 2.0, name: 'easy' },
-      { minDist: 12, maxDist: 18, targetRadius: 1.8, name: 'medium' },
-      { minDist: 18, maxDist: 25, targetRadius: 1.5, name: 'hard' },
-      { minDist: 25, maxDist: 40, targetRadius: 1.2, name: 'very_hard' },
+      { minDist: 3,  maxDist: 5,  name: 'trivial' },
+      { minDist: 5,  maxDist: 8,  name: 'very_easy' },
+      { minDist: 8,  maxDist: 12, name: 'easy' },
+      { minDist: 12, maxDist: 18, name: 'medium' },
+      { minDist: 18, maxDist: 25, name: 'hard' },
+      { minDist: 25, maxDist: 40, name: 'very_hard' },
     ];
     
+    // FIXED target radius (1.0 = 2m diameter sphere)
+    this.fixedTargetRadius = 1.0;
+    
     // Tracking for level progression
-    this.consecutiveSuccesses = 0;
-    this.successesNeededToAdvance = 3;
+    // Need successes on DIFFERENT targets (not consecutive, but unique targets)
+    this.uniqueSuccessfulTargets = 0;
+    this.successesNeededToAdvance = 20; // Need 20 different successful targets
     
     // Track current target (don't regenerate on failure)
     this.currentTargetPosition = null;
     this.attemptsOnCurrentTarget = 0;
-    this.maxAttemptsPerTarget = 5;
+    this.maxAttemptsPerTarget = 50; // Allow MANY retries on same target
   }
   
   /**
@@ -46,10 +53,10 @@ export class CurriculumManager {
   }
   
   /**
-   * Get target radius for current level
+   * Get target radius - ALWAYS FIXED at 1.0 (2m diameter)
    */
   getTargetRadius() {
-    return this.getCurrentStage().targetRadius;
+    return this.fixedTargetRadius;
   }
   
   /**
@@ -61,25 +68,27 @@ export class CurriculumManager {
     const oldLevel = this.level;
     
     if (success) {
-      this.consecutiveSuccesses++;
+      // Success on this target - count it and generate new target
+      this.uniqueSuccessfulTargets++;
       this.attemptsOnCurrentTarget = 0;
       this.currentTargetPosition = null; // Generate new target on success
       
-      // Advance level after consecutive successes
-      if (this.consecutiveSuccesses >= this.successesNeededToAdvance) {
+      // Advance level after enough unique successful targets
+      if (this.uniqueSuccessfulTargets >= this.successesNeededToAdvance) {
         if (this.level < this.stages.length - 1) {
           this.level++;
-          this.consecutiveSuccesses = 0;
+          this.uniqueSuccessfulTargets = 0; // Reset counter for new level
         }
       }
     } else {
-      this.consecutiveSuccesses = 0;
+      // Failure - keep trying same target
       this.attemptsOnCurrentTarget++;
       
-      // After too many failures on same target, generate new one
+      // After MANY failures on same target, generate new one (but don't count as success)
       if (this.attemptsOnCurrentTarget >= this.maxAttemptsPerTarget) {
         this.currentTargetPosition = null;
         this.attemptsOnCurrentTarget = 0;
+        // Don't reset uniqueSuccessfulTargets - keep progress
       }
     }
     
@@ -116,7 +125,7 @@ export class CurriculumManager {
    */
   reset() {
     this.level = 0;
-    this.consecutiveSuccesses = 0;
+    this.uniqueSuccessfulTargets = 0;
     this.currentTargetPosition = null;
     this.attemptsOnCurrentTarget = 0;
   }
@@ -126,7 +135,7 @@ export class CurriculumManager {
    */
   setLevel(level) {
     this.level = Math.max(0, Math.min(level, this.stages.length - 1));
-    this.consecutiveSuccesses = 0;
+    this.uniqueSuccessfulTargets = 0;
   }
   
   /**
@@ -143,9 +152,10 @@ export class CurriculumManager {
     return {
       level: this.level,
       stageName: this.getCurrentStage().name,
-      consecutiveSuccesses: this.consecutiveSuccesses,
+      uniqueSuccesses: this.uniqueSuccessfulTargets,
+      successesNeeded: this.successesNeededToAdvance,
       attemptsOnTarget: this.attemptsOnCurrentTarget,
+      maxAttempts: this.maxAttemptsPerTarget,
     };
   }
 }
-

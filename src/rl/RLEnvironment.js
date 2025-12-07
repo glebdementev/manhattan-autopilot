@@ -4,7 +4,12 @@
  * ALL observations and actions are in LOCAL coordinates (relative to drone facing)
  * 
  * CURRICULUM LEARNING: Starts with easy targets, gradually increases difficulty.
- * Key: On failure, retry the SAME target (up to N attempts).
+ * Key: On failure, retry the SAME target (many retries allowed).
+ * 
+ * FIXED VALUES:
+ * - Drone spawn height: 1.5m above ground
+ * - Target height: 2m above ground
+ * - Target size: 2m diameter (1m radius)
  */
 
 import { LIDAR } from '../config.js';
@@ -16,6 +21,10 @@ import {
   EpisodeStats,
   CurriculumManager,
 } from './environment/index.js';
+
+// Fixed spawn and target heights
+const FIXED_SPAWN_HEIGHT = 1.5;  // Drone spawns 1.5m above ground
+const FIXED_TARGET_HEIGHT = 1.0; // Target center is always 1m above ground
 
 export class RLEnvironment {
   constructor(drone, lidar, forestGenerator, sceneManager) {
@@ -69,7 +78,7 @@ export class RLEnvironment {
   
   /**
    * Reset environment for new episode
-   * Uses curriculum learning: keeps same target on failure
+   * Uses curriculum learning: keeps same target on failure (many retries)
    */
   reset() {
     // Reset drone state completely
@@ -78,17 +87,23 @@ export class RLEnvironment {
     // Update curriculum based on last episode result
     const curriculumResult = this.curriculumManager.recordEpisodeResult(this.lastEpisodeSuccess);
     
-    // Update target radius based on curriculum
+    // Target radius is FIXED (from curriculum manager, always 1.0 = 2m diameter)
     this.targetManager.setRadius(this.curriculumManager.getTargetRadius());
     
     // Determine spawn position
     let spawnPos;
     if (this.curriculumManager.shouldKeepSameTarget() && this.lastSpawnPosition) {
-      // Retry same scenario
+      // Retry same scenario - use exact same spawn position
       spawnPos = this.lastSpawnPosition;
     } else {
-      // New scenario
-      spawnPos = this.forest.findSpawnPosition();
+      // New scenario - generate new spawn position
+      const baseSpawn = this.forest.findSpawnPosition();
+      const groundY = this.forest.getTerrainHeight(baseSpawn.x, baseSpawn.z);
+      spawnPos = {
+        x: baseSpawn.x,
+        y: groundY + FIXED_SPAWN_HEIGHT, // FIXED: 1.5m above ground
+        z: baseSpawn.z,
+      };
       this.lastSpawnPosition = { ...spawnPos };
     }
     
@@ -131,19 +146,25 @@ export class RLEnvironment {
   
   /**
    * Generate target based on curriculum difficulty
+   * Target is always at FIXED_TARGET_HEIGHT (2m) above ground
    */
   generateCurriculumTarget() {
     const state = this.drone.getState();
     const range = this.curriculumManager.getTargetDistanceRange();
     
     // Generate target within curriculum distance range
+    // Use forest's method but override the Y coordinate
     const target = this.forest.generateTargetPosition(
       state.x, state.z,
       range.min, range.max
     );
     
-    this.targetManager.setPosition(target.x, target.y, target.z);
-    this.curriculumManager.setCurrentTarget(target.x, target.y, target.z);
+    // Override Y to be FIXED height above ground at target position
+    const groundY = this.forest.getTerrainHeight(target.x, target.z);
+    const fixedY = groundY + FIXED_TARGET_HEIGHT;
+    
+    this.targetManager.setPosition(target.x, fixedY, target.z);
+    this.curriculumManager.setCurrentTarget(target.x, fixedY, target.z);
   }
   
   /**
@@ -186,7 +207,7 @@ export class RLEnvironment {
     // Scan lidar
     this.lidar.scan();
     
-    // Calculate reward
+    // Calculate reward (now includes proximity penalty)
     const { reward, breakdown: rewardBreakdown } = this.calculateReward(prevDist);
     this.episodeStats.recordStep(reward);
     
@@ -235,10 +256,13 @@ export class RLEnvironment {
   
   /**
    * Calculate reward for current step
+   * Includes proximity penalty from lidar distances
    */
   calculateReward(prevDist) {
     const currentDist = this.getDistanceToTarget();
     const minLidarDist = this.lidar.getMinDistance();
+    const nadirDistance = this.lidar.getNadirDistance();
+    const zenithDistance = this.lidar.getZenithDistance();
     
     return this.rewardCalculator.calculate({
       prevDistance: prevDist,
@@ -246,6 +270,8 @@ export class RLEnvironment {
       targetRadius: this.targetManager.getRadius(),
       hadCollision: this.drone.hadCollision(),
       minLidarDist,
+      nadirDistance,
+      zenithDistance,
     });
   }
   

@@ -296,6 +296,8 @@ export class OfflineTrainer {
       simSpeedMultiplier,
       curriculumLevel: envStats.curriculum?.level ?? 0,
       curriculumStage: envStats.curriculum?.stageName ?? 'trivial',
+      curriculumSuccesses: envStats.curriculum?.uniqueSuccesses ?? 0,
+      curriculumNeeded: envStats.curriculum?.successesNeeded ?? 20,
     };
   }
   

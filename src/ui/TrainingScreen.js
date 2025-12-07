@@ -366,7 +366,10 @@ export class TrainingScreen {
     document.getElementById('train-steps').textContent = trainingSteps;
     
     // Update curriculum info
-    document.getElementById('train-curriculum').textContent = `${curriculumLevel} (${curriculumStage})`;
+    const curriculumSuccesses = stats.curriculumSuccesses ?? 0;
+    const curriculumNeeded = stats.curriculumNeeded ?? 20;
+    document.getElementById('train-curriculum').textContent = 
+      `${curriculumLevel} (${curriculumStage}) - ${curriculumSuccesses}/${curriculumNeeded}`;
     
     // Update details - speed
     document.getElementById('train-speed').textContent = `${simSpeedMultiplier}x real-time`;
