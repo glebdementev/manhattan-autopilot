@@ -7,10 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && npx gh-pages -d dist"
+    "deploy": "npm run build && npx gh-pages -d dist",
+    "train": "node train.js",
+    "train:fast": "node train.js --episodes=5000",
+    "train:gpu": "node --experimental-vm-modules train.js"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.20.0",
+    "@tensorflow/tfjs-node": "^4.22.0",
     "three": "^0.160.0"
   },
   "devDependencies": {
