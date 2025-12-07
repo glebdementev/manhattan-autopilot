@@ -4,7 +4,7 @@
  * MODULAR: Each mesh component is in a separate file
  */
 import * as THREE from 'three';
-import { FOREST } from '../config.js';
+import { FOREST, DRONE } from '../config.js';
 import { PerlinNoise } from './PerlinNoise.js';
 import { TerrainMesh } from './TerrainMesh.js';
 import { ConiferMesh } from './ConiferMesh.js';
@@ -202,7 +202,8 @@ export class ForestGenerator {
   }
 
   /**
-   * Generate a random target position
+   * Generate a random target position that has at least 0.5x0.5 clearance
+   * Targets can be positioned under canopies as long as there's enough space
    */
   generateTargetPosition(currentX, currentZ, minDist = 25, maxDist = 60) {
     let seed = Date.now();
@@ -212,8 +213,9 @@ export class ForestGenerator {
     };
     
     const halfSize = FOREST.SIZE / 2 - 10;
+    const targetClearance = 0.25; // 0.5x0.5 box = 0.25 half-width
     
-    for (let attempt = 0; attempt < 30; attempt++) {
+    for (let attempt = 0; attempt < 50; attempt++) {
       const angle = random() * Math.PI * 2;
       const dist = minDist + random() * (maxDist - minDist);
       
@@ -227,11 +229,149 @@ export class ForestGenerator {
       const y = groundY + FOREST.FLYING_HEIGHT_MIN + random() * 
         (FOREST.FLYING_HEIGHT_MAX - FOREST.FLYING_HEIGHT_MIN);
       
-      return { x, y, z };
+      // Check if position has 0.5x0.5 clearance (can be under canopies)
+      if (this.isTargetPositionClear(x, y, z, targetClearance)) {
+        return { x, y, z };
+      }
     }
     
+    // Fallback: find a clear position near the origin
     const groundY = this.getTerrainHeight(0, 0);
     return { x: 0, y: groundY + FOREST.FLYING_HEIGHT_MAX, z: 0 };
+  }
+  
+  /**
+   * Check if a target position has the required clearance
+   * Only checks trunk collisions, ignores canopy (crown) obstacles
+   */
+  isTargetPositionClear(x, y, z, margin = 0.25) {
+    // Box bounds for target clearance
+    const boxMinX = x - margin;
+    const boxMaxX = x + margin;
+    const boxMinY = y - margin;
+    const boxMaxY = y + margin;
+    const boxMinZ = z - margin;
+    const boxMaxZ = z + margin;
+    
+    // Check terrain clearance
+    const terrainY = this.getTerrainHeight(x, z);
+    if (boxMinY < terrainY) {
+      return false;
+    }
+    
+    // Check only trunk obstacles (not canopies)
+    for (const obstacle of this.obstacles) {
+      // Skip canopy obstacles - only check trunks
+      if (obstacle.type === 'canopy' || obstacle.type === 'crown') {
+        continue;
+      }
+      
+      if (this.checkBoxCylinderIntersection(
+        boxMinX, boxMaxX, boxMinY, boxMaxY, boxMinZ, boxMaxZ,
+        obstacle
+      )) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+  
+  /**
+   * Check if a position is clear of obstacles using box-based collision
+   * Uses drone box dimensions for accurate clearance checking
+   */
+  isPositionClear(x, y, z, margin = 0.5) {
+    // Drone box dimensions with margin
+    const halfWidth = DRONE.SIZE / 2 + margin;
+    const halfHeight = DRONE.SIZE * 0.35 / 2 + margin;
+    const halfDepth = DRONE.SIZE / 2 + margin;
+    
+    // Box bounds
+    const boxMinX = x - halfWidth;
+    const boxMaxX = x + halfWidth;
+    const boxMinY = y - halfHeight;
+    const boxMaxY = y + halfHeight;
+    const boxMinZ = z - halfDepth;
+    const boxMaxZ = z + halfDepth;
+    
+    // Check terrain clearance at all corners and center
+    const checkPoints = [
+      { x: x, z: z },
+      { x: boxMinX, z: boxMinZ },
+      { x: boxMaxX, z: boxMinZ },
+      { x: boxMinX, z: boxMaxZ },
+      { x: boxMaxX, z: boxMaxZ },
+    ];
+    
+    for (const point of checkPoints) {
+      const terrainY = this.getTerrainHeight(point.x, point.z);
+      if (boxMinY < terrainY) {
+        return false;
+      }
+    }
+    
+    // Check obstacle clearance using box-cylinder intersection
+    for (const obstacle of this.obstacles) {
+      if (this.checkBoxCylinderIntersection(
+        boxMinX, boxMaxX, boxMinY, boxMaxY, boxMinZ, boxMaxZ,
+        obstacle
+      )) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+  
+  /**
+   * Check box-cylinder intersection
+   */
+  checkBoxCylinderIntersection(boxMinX, boxMaxX, boxMinY, boxMaxY, boxMinZ, boxMaxZ, obstacle) {
+    // First check vertical overlap
+    if (boxMaxY < obstacle.minY || boxMinY > obstacle.maxY) {
+      return false;
+    }
+    
+    // Find the closest point on the box to the cylinder center
+    const closestX = Math.max(boxMinX, Math.min(obstacle.x, boxMaxX));
+    const closestZ = Math.max(boxMinZ, Math.min(obstacle.z, boxMaxZ));
+    
+    // Calculate distance from closest point to cylinder center
+    const dx = closestX - obstacle.x;
+    const dz = closestZ - obstacle.z;
+    const distSquared = dx * dx + dz * dz;
+    
+    // Check if distance is less than cylinder radius
+    return distSquared < obstacle.radius * obstacle.radius;
+  }
+  
+  /**
+   * Check if a path between two points is clear of obstacles
+   * Uses box-based collision checking along the path
+   */
+  isPathClear(startX, startY, startZ, endX, endY, endZ, margin = 0.5) {
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const dz = endZ - startZ;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    
+    // Check points along the path
+    const stepSize = DRONE.SIZE * 0.5; // Check every half-drone-size
+    const numSteps = Math.max(1, Math.ceil(dist / stepSize));
+    
+    for (let i = 0; i <= numSteps; i++) {
+      const t = i / numSteps;
+      const x = startX + dx * t;
+      const y = startY + dy * t;
+      const z = startZ + dz * t;
+      
+      if (!this.isPositionClear(x, y, z, margin)) {
+        return false;
+      }
+    }
+    
+    return true;
   }
 
   getForestGroup() {

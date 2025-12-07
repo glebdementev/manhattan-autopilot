@@ -1,8 +1,8 @@
 /**
- * Main entry point - Forest Drone Navigation Simulation
- * A drone navigates through a procedurally generated forest
+ * Main entry point - Drone RL Navigation Simulation
+ * Train a drone to navigate through a forest using reinforcement learning
  */
-import { SIMULATION, FOREST } from './config.js';
+import { SIMULATION, FOREST, RL_CONFIG } from './config.js';
 
 // Forest
 import { ForestGenerator } from './forest/ForestGenerator.js';
@@ -10,12 +10,10 @@ import { ForestGenerator } from './forest/ForestGenerator.js';
 // Vehicle
 import { Drone } from './vehicle/Drone.js';
 import { Lidar } from './vehicle/Lidar.js';
-import { DroneController } from './vehicle/DroneController.js';
 
-// Autopilot
-import { AutopilotModel } from './autopilot/AutopilotModel.js';
-import { DataRecorder } from './autopilot/DataRecorder.js';
-import { Trainer } from './autopilot/Trainer.js';
+// Reinforcement Learning
+import { RLEnvironment } from './rl/RLEnvironment.js';
+import { RLAgent } from './rl/RLAgent.js';
 
 // Scene & UI
 import { SceneManager } from './scene/SceneManager.js';
@@ -28,17 +26,21 @@ class Simulation {
     this.forestGenerator = null;
     this.drone = null;
     this.lidar = null;
-    this.controller = null;
-    this.autopilot = null;
-    this.dataRecorder = null;
-    this.trainer = null;
+    this.rlEnvironment = null;
+    this.rlAgent = null;
     this.ui = null;
     
     // State
-    this.driverMode = 'classic'; // 'classic', 'autopilot', 'manual'
-    this.cameraMode = 'chase';   // 'chase', 'bird'
+    this.driverMode = 'rl'; // 'rl', 'manual'
     this.isRunning = false;
     this.lastTime = 0;
+    this.currentSeed = 42;
+    
+    // Training state
+    this.trainingEnabled = true;
+    this.fastMode = false;
+    this.stepsSinceLastTrain = 0;
+    this.episodesSinceSceneChange = 0;
     
     // Manual control
     this.manualInput = {
@@ -53,76 +55,60 @@ class Simulation {
     // Raycast targets for LiDAR
     this.raycastTargets = [];
     
-    // Target reached flag
-    this.isRegeneratingTarget = false;
+    // Episode state
+    this.isRegenerating = false;
+    this.currentObservation = null;
   }
 
   /**
    * Initialize the simulation
    */
   async init() {
-    console.log('Initializing Forest Drone Navigation...');
+    console.log('Initializing Drone RL Navigation...');
     
     // Create scene
     const container = document.getElementById('canvas-container');
     this.sceneManager = new SceneManager(container);
     
-    // Generate forest
-    console.log('Generating forest...');
-    this.forestGenerator = new ForestGenerator(42);
-    const forest = this.forestGenerator.generate();
-    this.sceneManager.add(forest);
+    // Generate initial forest
+    this.generateForest();
     
     // Create drone
     console.log('Creating drone...');
     this.drone = new Drone();
+    this.drone.setCollisionChecker(this.forestGenerator);
     this.sceneManager.add(this.drone.getMesh());
     
     // Create LiDAR
     this.lidar = new Lidar(this.drone);
     this.sceneManager.add(this.lidar.getVisualGroup());
     
-    // Get raycast targets
-    this.raycastTargets = this.forestGenerator.getRaycastTargets();
+    // Create RL Environment
+    console.log('Creating RL Environment...');
+    this.rlEnvironment = new RLEnvironment(
+      this.drone,
+      this.lidar,
+      this.forestGenerator,
+      this.sceneManager
+    );
+    this.rlEnvironment.setRaycastTargets(this.raycastTargets);
     
-    // Create controller
-    this.controller = new DroneController(this.drone, this.forestGenerator);
+    // Create RL Agent
+    const obsInfo = this.rlEnvironment.getObservationSpaceInfo();
+    const actInfo = this.rlEnvironment.getActionSpaceInfo();
+    console.log(`Observation space: ${obsInfo.size}, Action space: ${actInfo.size}`);
     
-    // Create autopilot components
-    console.log('Initializing autopilot...');
-    this.autopilot = new AutopilotModel();
-    this.dataRecorder = new DataRecorder();
-    this.trainer = new Trainer(this.autopilot, this.dataRecorder);
-    
-    // Setup trainer callbacks
-    this.trainer.setCallbacks({
-      onTrainingStart: () => {
-        this.ui.setTrainingStatus('Training...');
-        this.ui.setModelStatus('Training...');
-        this.ui.setInstantTrainEnabled(false);
-      },
-      onTrainingProgress: (epoch, total, loss) => {
-        this.ui.setTrainingStatus(`Epoch ${epoch}/${total}`);
-        this.ui.updateTrainingStats(this.dataRecorder.getDataSize(), loss);
-      },
-      onTrainingComplete: () => {
-        this.ui.setTrainingStatus('Training complete!');
-        this.ui.setInstantTrainEnabled(true);
-        this.updateModelStatus();
-      },
-      onSyntheticDataGenerated: (count, timeMs) => {
-        this.ui.setTrainingStatus(`Generated ${count} samples in ${timeMs.toFixed(0)}ms`);
-        this.ui.updateTrainingStats(this.dataRecorder.getDataSize(), null);
-      },
-    });
+    this.rlAgent = new RLAgent(obsInfo.size, actInfo.size);
     
     // Create UI
     this.ui = new UIManager();
     this.setupUICallbacks();
     
-    // Set initial position and target
-    this.resetDrone();
-    this.generateNewTarget();
+    // Set collision callback
+    this.drone.setOnCollision((type) => this.handleCollision(type));
+    
+    // Reset environment for first episode
+    this.currentObservation = this.rlEnvironment.reset();
     
     // Start simulation
     this.isRunning = true;
@@ -130,108 +116,174 @@ class Simulation {
     this.animate();
     
     console.log('Simulation initialized!');
+    console.log('Training will start automatically. Use manual mode to test the agent.');
+  }
+
+  /**
+   * Generate forest with current seed
+   */
+  generateForest() {
+    console.log(`Generating forest (seed: ${this.currentSeed})...`);
+    this.forestGenerator = new ForestGenerator(this.currentSeed);
+    const forest = this.forestGenerator.generate();
+    this.sceneManager.add(forest);
+    this.raycastTargets = this.forestGenerator.getRaycastTargets();
+  }
+
+  /**
+   * Regenerate scene with new seed
+   */
+  regenerateScene() {
+    // Remove old forest
+    if (this.forestGenerator) {
+      const oldForest = this.forestGenerator.getForestGroup();
+      this.sceneManager.remove(oldForest);
+    }
+    
+    // New seed
+    this.currentSeed = Date.now();
+    
+    // Generate new forest
+    this.generateForest();
+    
+    // Update RL environment
+    if (this.rlEnvironment) {
+      this.rlEnvironment.setForest(this.forestGenerator);
+    }
+    
+    // Update drone collision checker
+    if (this.drone) {
+      this.drone.setCollisionChecker(this.forestGenerator);
+    }
   }
 
   /**
    * Setup UI event callbacks
    */
   setupUICallbacks() {
-    this.ui.on('newTarget', () => this.generateNewTarget());
-    this.ui.on('reset', () => this.resetSimulation());
+    this.ui.on('newTarget', () => this.resetEpisode());
+    this.ui.on('reset', () => this.resetEpisode());
     
     this.ui.on('driverModeChange', (mode) => {
-      // Check if autopilot is available
-      if (mode === 'autopilot' && !this.autopilot.isReady()) {
-        console.warn('Autopilot not ready - falling back to classic');
-        this.ui.setDriverMode('classic');
-        this.ui.setTrainingStatus('Train a model first!');
-        return;
-      }
-      
       this.driverMode = mode;
-      this.drone.setMode(mode);
+      this.drone.setMode(mode === 'manual' ? 'manual' : 'autopilot');
       console.log(`Pilot mode: ${mode}`);
     });
     
-    this.ui.on('cameraModeChange', (mode) => {
-      this.cameraMode = mode;
+    this.ui.on('trainingToggle', (enabled) => {
+      this.trainingEnabled = enabled;
+      console.log(`Training ${enabled ? 'enabled' : 'disabled'}`);
+    });
+    
+    this.ui.on('fastModeToggle', (enabled) => {
+      this.fastMode = enabled;
+      console.log(`Fast mode ${enabled ? 'enabled' : 'disabled'}`);
     });
     
     this.ui.on('lidarToggle', (enabled) => {
       this.lidar.setVisualizationEnabled(enabled);
     });
     
-    this.ui.on('instantTrain', () => this.instantTrain());
+    this.ui.on('resetTraining', () => this.resetTraining());
     this.ui.on('exportModel', () => this.exportModel());
     this.ui.on('importModel', (file) => this.importModel(file));
-    this.ui.on('downloadTrainingData', () => this.downloadTrainingData());
     
     // Keyboard input
     this.ui.on('keydown', (key) => this.handleKeyDown(key));
     this.ui.on('keyup', (key) => this.handleKeyUp(key));
     
     // Set initial drone color
-    this.drone.setMode('classic');
+    this.drone.setMode('autopilot');
   }
 
   /**
-   * Reset drone to spawn position
+   * Reset current episode
    */
-  resetDrone() {
-    const spawnPos = this.forestGenerator.findSpawnPosition();
-    this.drone.reset();
-    this.drone.setPosition(spawnPos.x, spawnPos.y, spawnPos.z);
+  resetEpisode() {
+    if (this.isRegenerating) return;
+    
+    this.currentObservation = this.rlEnvironment.reset();
+    console.log('Episode reset');
   }
 
   /**
-   * Generate a new target
+   * Reset all training
    */
-  generateNewTarget() {
-    const state = this.drone.getState();
-    const target = this.forestGenerator.generateTargetPosition(state.x, state.z);
+  resetTraining() {
+    this.rlAgent.clearBuffer();
+    this.rlAgent.trainingStep = 0;
+    this.rlAgent.trainingHistory = {
+      policyLoss: [],
+      valueLoss: [],
+      avgReward: [],
+      successRate: [],
+    };
+    this.rlAgent.explorationRate = RL_CONFIG.INITIAL_EXPLORATION;
     
-    this.controller.setTarget(target.x, target.y, target.z);
-    this.sceneManager.setTargetPosition(target.x, target.y, target.z);
+    // Rebuild networks
+    this.rlAgent.build();
     
-    console.log(`New target: (${target.x.toFixed(1)}, ${target.y.toFixed(1)}, ${target.z.toFixed(1)})`);
+    // Reset environment stats
+    this.rlEnvironment.totalEpisodes = 0;
+    this.rlEnvironment.successfulEpisodes = 0;
+    this.rlEnvironment.totalReward = 0;
+    this.rlEnvironment.recentRewards = [];
     
-    // If collecting data, start new episode
-    if (this.trainer.isCollecting()) {
-      this.trainer.onEpisodeStart();
+    // Reset episode
+    this.resetEpisode();
+    
+    console.log('Training reset');
+    this.ui.setTrainingStatus('Training reset');
+  }
+
+  /**
+   * Handle episode end
+   */
+  handleEpisodeEnd(info) {
+    if (this.isRegenerating) return;
+    this.isRegenerating = true;
+    
+    // Show appropriate splash
+    if (info.success) {
+      this.ui.showSuccessSplash();
+    } else if (info.reason === 'collision') {
+      const collisionType = this.drone.lastCollision ? 'obstacle' : 'terrain';
+      this.ui.showCollisionSplash(collisionType);
+    } else if (info.reason === 'timeout') {
+      this.ui.showTimeoutSplash();
     }
-  }
-
-  /**
-   * Reset simulation
-   */
-  resetSimulation() {
-    this.resetDrone();
-    this.generateNewTarget();
-  }
-
-  /**
-   * Instant train: generate synthetic data and train immediately
-   */
-  async instantTrain() {
-    this.ui.setInstantTrainEnabled(false);
-    this.ui.setTrainingStatus('Generating data & training...');
     
-    setTimeout(async () => {
-      this.trainer.generateSyntheticData(10000);
-      await this.trainer.train(20);
-    }, 10);
+    // Track episodes since scene change
+    this.episodesSinceSceneChange++;
+    
+    // Regenerate scene periodically
+    const shouldRegenerate = this.episodesSinceSceneChange >= RL_CONFIG.EPISODES_PER_SCENE;
+    
+    setTimeout(() => {
+      if (shouldRegenerate) {
+        this.regenerateScene();
+        this.episodesSinceSceneChange = 0;
+      }
+      
+      // Reset for new episode
+      this.currentObservation = this.rlEnvironment.reset();
+      this.isRegenerating = false;
+    }, this.fastMode ? 100 : 600);
   }
 
   /**
-   * Export model to downloadable file
+   * Handle drone collision
+   */
+  handleCollision(type) {
+    // Collision is handled in the step function through episode termination
+    console.log(`Collision detected: ${type}`);
+  }
+
+  /**
+   * Export model to file
    */
   async exportModel() {
-    if (!this.autopilot.isReady()) {
-      this.ui.setTrainingStatus('No model to export!');
-      return;
-    }
-    
-    const success = await this.autopilot.exportToFile();
+    const success = await this.rlAgent.exportToFile();
     if (success) {
       this.ui.setTrainingStatus('Model exported!');
     } else {
@@ -245,50 +297,12 @@ class Simulation {
   async importModel(file) {
     this.ui.setTrainingStatus('Importing model...');
     
-    const success = await this.autopilot.importFromFile(file);
+    const success = await this.rlAgent.importFromFile(file);
     if (success) {
       this.ui.setTrainingStatus('Model imported!');
-      this.updateModelStatus();
+      this.ui.setModelStatus('Imported');
     } else {
       this.ui.setTrainingStatus('Import failed');
-    }
-  }
-
-  /**
-   * Download training data as JSON file
-   */
-  downloadTrainingData() {
-    const dataSize = this.dataRecorder.getDataSize();
-    if (dataSize === 0) {
-      this.ui.setTrainingStatus('No training data to download!');
-      return;
-    }
-    
-    const jsonData = this.dataRecorder.exportJSON();
-    const blob = new Blob([jsonData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `drone-training-data-${dataSize}-samples.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
-    this.ui.setTrainingStatus(`Downloaded ${dataSize} samples`);
-  }
-
-  /**
-   * Update model status in UI
-   */
-  updateModelStatus() {
-    if (this.autopilot.isReady()) {
-      this.ui.setModelStatus('Ready');
-      this.ui.setAutopilotEnabled(true);
-    } else {
-      this.ui.setModelStatus('Not trained');
-      this.ui.setAutopilotEnabled(false);
     }
   }
 
@@ -316,10 +330,7 @@ class Simulation {
         this.manualInput.down = true;
         break;
       case 'r':
-        this.generateNewTarget();
-        break;
-      case 'c':
-        this.cameraMode = this.cameraMode === 'chase' ? 'bird' : 'chase';
+        this.resetEpisode();
         break;
     }
   }
@@ -351,11 +362,11 @@ class Simulation {
   }
 
   /**
-   * Get control commands based on current driver mode
+   * Get action from current mode
    */
-  getControlCommands() {
+  getAction() {
     if (this.driverMode === 'manual') {
-      // Manual control: WASD for horizontal, QE for vertical
+      // Manual control
       let thrustX = 0;
       let thrustY = 0;
       let thrustZ = 0;
@@ -367,25 +378,10 @@ class Simulation {
       if (this.manualInput.up) thrustY = 0.8;
       if (this.manualInput.down) thrustY = -0.5;
       
-      return { thrustX, thrustY, thrustZ, actualMode: 'manual' };
-    } else if (this.driverMode === 'autopilot') {
-      // Neural network autopilot
-      if (!this.autopilot.isReady()) {
-        console.error('Autopilot selected but model not ready!');
-        return { thrustX: 0, thrustY: 0, thrustZ: 0, actualMode: 'stopped' };
-      }
-      
-      const lidarDistances = this.lidar.getDistances();
-      const droneState = this.drone.getState();
-      const targetDirection = this.controller.getTargetDirection();
-      
-      const prediction = this.autopilot.predict(lidarDistances, droneState, targetDirection);
-      return { ...prediction, actualMode: 'autopilot' };
+      return [thrustX, thrustY, thrustZ];
     } else {
-      // Classical controller
-      const lidarDistances = this.lidar.getDistances();
-      const control = this.controller.computeControl(lidarDistances);
-      return { ...control, actualMode: 'classic' };
+      // RL Agent
+      return this.rlAgent.selectAction(this.currentObservation, this.trainingEnabled);
     }
   }
 
@@ -399,13 +395,19 @@ class Simulation {
     
     // Calculate delta time
     const currentTime = performance.now();
-    const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1);
+    let deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1);
     this.lastTime = currentTime;
     
-    // Update simulation
-    this.update(deltaTime);
+    // Fast mode: run multiple steps
+    const stepsPerFrame = this.fastMode ? 10 : 1;
     
-    // Render
+    for (let i = 0; i < stepsPerFrame; i++) {
+      if (!this.isRegenerating) {
+        this.update(deltaTime / stepsPerFrame);
+      }
+    }
+    
+    // Render (only once per frame)
     this.sceneManager.render();
   }
 
@@ -413,42 +415,37 @@ class Simulation {
    * Update simulation state
    */
   update(dt) {
-    // Check if target reached
-    if (this.controller.isTargetReached()) {
-      if (this.trainer.isCollecting()) {
-        this.trainer.onEpisodeEnd(true);
-      }
-      this.ui.updateNavigation(0, '🎯 Target Reached!');
+    // Get action
+    const action = this.getAction();
+    
+    // Take step in environment
+    const { observation, reward, done, info } = this.rlEnvironment.step(action, dt);
+    
+    // Store experience for training (only in RL mode)
+    if (this.driverMode === 'rl' && this.trainingEnabled) {
+      this.rlAgent.storeExperience(
+        this.currentObservation,
+        action,
+        reward,
+        observation,
+        done
+      );
       
-      // Auto-generate new target
-      if (!this.isRegeneratingTarget) {
-        this.isRegeneratingTarget = true;
-        setTimeout(() => {
-          this.generateNewTarget();
-          this.isRegeneratingTarget = false;
-        }, 500);
+      // Train periodically
+      this.stepsSinceLastTrain++;
+      if (this.stepsSinceLastTrain >= RL_CONFIG.TRAIN_INTERVAL) {
+        this.rlAgent.train();
+        this.stepsSinceLastTrain = 0;
       }
-      return;
     }
     
-    // LiDAR scan
-    this.lidar.scan(this.raycastTargets);
+    // Update observation
+    this.currentObservation = observation;
     
-    // Get control commands
-    const control = this.getControlCommands();
-    this.drone.setControls(control.thrustX, control.thrustY, control.thrustZ);
-    
-    // Record data if collecting and using classic controller
-    if (this.trainer.isCollecting() && this.driverMode === 'classic') {
-      const lidarDistances = this.lidar.getDistances();
-      const droneState = this.drone.getState();
-      const targetDirection = this.controller.getTargetDirection();
-      
-      this.dataRecorder.record(lidarDistances, droneState, targetDirection, control);
+    // Handle episode end
+    if (done) {
+      this.handleEpisodeEnd(info);
     }
-    
-    // Update drone physics
-    this.drone.update(dt);
     
     // Keep drone in bounds
     this.enforceBounds();
@@ -460,28 +457,39 @@ class Simulation {
       state.y,
       state.z,
       state.yaw,
-      this.cameraMode
+      'chase'
     );
     
     // Update UI
-    this.ui.updateDroneStats(
-      state.speed,
-      state.y,
-      this.drone.distanceTraveled
-    );
+    this.updateUI();
+  }
+
+  /**
+   * Update UI displays
+   */
+  updateUI() {
+    const state = this.drone.getState();
+    const envStats = this.rlEnvironment.getStats();
+    const agentStats = this.rlAgent.getStats();
+    const distToTarget = this.rlEnvironment.getDistanceToTarget();
     
-    // Show actual mode being used
-    const modeLabels = {
-      'autopilot': '🤖 Autopilot',
-      'manual': '🎮 Manual',
-      'classic': '🚁 Classic',
-      'stopped': '⚠️ Stopped',
-    };
+    // Drone stats
+    this.ui.updateDroneStats(state.speed, state.y, distToTarget);
     
-    this.ui.updateNavigation(
-      this.controller.getDistanceToTarget(),
-      modeLabels[control.actualMode] || control.actualMode
-    );
+    // RL stats
+    this.ui.updateRLStats(envStats);
+    this.ui.updateAgentStats(agentStats);
+    
+    // Navigation status
+    const modeLabel = this.driverMode === 'manual' ? 'Manual' : 'RL Agent';
+    this.ui.updateNavigation(distToTarget, modeLabel);
+    
+    // Model status
+    if (this.trainingEnabled && agentStats.trainingStep > 0) {
+      this.ui.setModelStatus(`Training (${agentStats.trainingStep} steps)`);
+    } else if (agentStats.trainingStep > 0) {
+      this.ui.setModelStatus('Trained');
+    }
   }
 
   /**

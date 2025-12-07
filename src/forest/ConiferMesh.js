@@ -57,13 +57,23 @@ export class ConiferMesh {
       coneMatrix.multiply(coneScale);
       this.coneInstances.setMatrixAt(i, coneMatrix);
       
-      // Store obstacle
+      // Store trunk obstacle (narrower, for target placement)
       this.obstacles.push({
-        type: 'tree',
+        type: 'trunk',
+        x: tree.x, 
+        z: tree.z,
+        radius: FOREST.CONIFER_TRUNK_RADIUS * trunkWidthScale,
+        minY: tree.y,
+        maxY: tree.y + trunkHeight,
+      });
+      
+      // Store canopy obstacle (wider, for drone collision)
+      this.obstacles.push({
+        type: 'canopy',
         x: tree.x, 
         z: tree.z,
         radius: tree.radius,
-        minY: tree.y,
+        minY: tree.y + trunkHeight,
         maxY: tree.y + tree.height,
       });
     });

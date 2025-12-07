@@ -1,6 +1,7 @@
 /**
  * Drone - flying box with 6-axis movement
  * Simple physics model: no pitch/roll, just position-based movement
+ * Includes box-based collision detection with terrain and obstacles
  */
 import * as THREE from 'three';
 import { DRONE, COLORS } from '../config.js';
@@ -34,10 +35,34 @@ export class Drone {
     // Stats
     this.distanceTraveled = 0;
     this.maxSpeedReached = 0;
+    
+    // Collision detection - use box dimensions
+    this.collisionChecker = null;
+    this.boxHalfWidth = DRONE.SIZE / 2;   // Half-width (X axis)
+    this.boxHalfHeight = DRONE.SIZE * 0.35 / 2; // Half-height (Y axis)
+    this.boxHalfDepth = DRONE.SIZE / 2;   // Half-depth (Z axis)
+    this.lastCollision = false;
+    
+    // Collision callback
+    this.onCollision = null;
+  }
+  
+  /**
+   * Set collision checker (forest generator reference)
+   */
+  setCollisionChecker(checker) {
+    this.collisionChecker = checker;
+  }
+  
+  /**
+   * Set collision callback (called when drone collides with something)
+   */
+  setOnCollision(callback) {
+    this.onCollision = callback;
   }
 
   /**
-   * Create the drone mesh - SIMPLIFIED for performance
+   * Create the drone mesh - Blue box is the collision box
    */
   createMesh() {
     const group = new THREE.Group();
@@ -45,7 +70,7 @@ export class Drone {
     
     const size = DRONE.SIZE;
     
-    // Main body (box)
+    // Main body (box) - This IS the collision box
     const bodyGeometry = new THREE.BoxGeometry(size, size * 0.35, size);
     this.bodyMaterial = new THREE.MeshLambertMaterial({
       color: COLORS.DRONE_CLASSIC,
@@ -56,27 +81,6 @@ export class Drone {
     body.castShadow = true;
     body.name = 'body';
     group.add(body);
-    
-    // Simplified propeller indicators (just 4 small boxes)
-    const propGeometry = new THREE.BoxGeometry(size * 0.4, 0.05, size * 0.4);
-    const propMaterial = new THREE.MeshBasicMaterial({
-      color: 0x66dddd,
-      transparent: true,
-      opacity: 0.5,
-    });
-    
-    const propPositions = [
-      { x: size * 0.5, z: size * 0.5 },
-      { x: -size * 0.5, z: size * 0.5 },
-      { x: size * 0.5, z: -size * 0.5 },
-      { x: -size * 0.5, z: -size * 0.5 },
-    ];
-    
-    propPositions.forEach(pos => {
-      const prop = new THREE.Mesh(propGeometry, propMaterial);
-      prop.position.set(pos.x, size * 0.12, pos.z);
-      group.add(prop);
-    });
     
     // Front indicator (simple box)
     const frontGeom = new THREE.BoxGeometry(size * 0.15, size * 0.1, size * 0.05);
@@ -99,7 +103,7 @@ export class Drone {
   }
 
   /**
-   * Update drone physics
+   * Update drone physics with collision detection
    */
   update(dt) {
     // Calculate acceleration from thrust
@@ -130,14 +134,37 @@ export class Drone {
       this.maxSpeedReached = currentSpeed;
     }
     
-    // Update position
+    // Calculate proposed new position
     const dx = this.vx * dt;
     const dy = this.vy * dt;
     const dz = this.vz * dt;
     
-    this.x += dx;
-    this.y += dy;
-    this.z += dz;
+    let newX = this.x + dx;
+    let newY = this.y + dy;
+    let newZ = this.z + dz;
+    
+    // Collision detection and response
+    this.lastCollision = false;
+    if (this.collisionChecker) {
+      const collision = this.checkCollision(newX, newY, newZ);
+      
+      if (collision.collided) {
+        this.lastCollision = true;
+        
+        // Trigger collision callback (for restart)
+        if (this.onCollision) {
+          this.onCollision(collision.type);
+        }
+        
+        // Don't update position - collision callback will handle restart
+        return;
+      }
+    }
+    
+    // Update position
+    this.x = newX;
+    this.y = newY;
+    this.z = newZ;
     
     // Track distance
     this.distanceTraveled += Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -155,6 +182,91 @@ export class Drone {
     
     // Update mesh
     this.updateMesh();
+  }
+  
+  /**
+   * Check collision at proposed position using box-based collision
+   * Returns collision info with type of collision
+   */
+  checkCollision(newX, newY, newZ) {
+    const result = {
+      collided: false,
+      type: null, // 'terrain', 'tree', 'bush'
+    };
+    
+    if (!this.collisionChecker) return result;
+    
+    // Drone bounding box at new position
+    const droneMinX = newX - this.boxHalfWidth;
+    const droneMaxX = newX + this.boxHalfWidth;
+    const droneMinY = newY - this.boxHalfHeight;
+    const droneMaxY = newY + this.boxHalfHeight;
+    const droneMinZ = newZ - this.boxHalfDepth;
+    const droneMaxZ = newZ + this.boxHalfDepth;
+    
+    // Check terrain collision at all 4 corners and center of the drone box
+    const checkPoints = [
+      { x: newX, z: newZ },                           // Center
+      { x: droneMinX, z: droneMinZ },                 // Corner 1
+      { x: droneMaxX, z: droneMinZ },                 // Corner 2
+      { x: droneMinX, z: droneMaxZ },                 // Corner 3
+      { x: droneMaxX, z: droneMaxZ },                 // Corner 4
+    ];
+    
+    for (const point of checkPoints) {
+      const terrainY = this.collisionChecker.getTerrainHeight(point.x, point.z);
+      if (droneMinY < terrainY) {
+        result.collided = true;
+        result.type = 'terrain';
+        return result;
+      }
+    }
+    
+    // Check obstacle collisions (trees, bushes) using box-cylinder intersection
+    const obstacles = this.collisionChecker.getObstacles();
+    
+    for (const obstacle of obstacles) {
+      if (this.checkBoxCylinderCollision(
+        droneMinX, droneMaxX, droneMinY, droneMaxY, droneMinZ, droneMaxZ,
+        obstacle
+      )) {
+        result.collided = true;
+        result.type = obstacle.type || 'tree';
+        return result;
+      }
+    }
+    
+    return result;
+  }
+  
+  /**
+   * Check box-cylinder collision (AABB vs cylinder)
+   * Drone is a box, obstacles are cylinders
+   */
+  checkBoxCylinderCollision(boxMinX, boxMaxX, boxMinY, boxMaxY, boxMinZ, boxMaxZ, obstacle) {
+    // First check vertical overlap
+    if (boxMaxY < obstacle.minY || boxMinY > obstacle.maxY) {
+      return false;
+    }
+    
+    // Find the closest point on the box to the cylinder center
+    const closestX = Math.max(boxMinX, Math.min(obstacle.x, boxMaxX));
+    const closestZ = Math.max(boxMinZ, Math.min(obstacle.z, boxMaxZ));
+    
+    // Calculate distance from closest point to cylinder center
+    const dx = closestX - obstacle.x;
+    const dz = closestZ - obstacle.z;
+    const distSquared = dx * dx + dz * dz;
+    
+    // Check if distance is less than cylinder radius
+    return distSquared < obstacle.radius * obstacle.radius;
+  }
+  
+  /**
+   * Check if drone had a collision in the last update
+   */
+  hadCollision() {
+    return this.lastCollision;
   }
 
   /**

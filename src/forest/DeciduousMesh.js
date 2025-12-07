@@ -65,13 +65,23 @@ export class DeciduousMesh {
       canopyMatrix.multiply(canopyScale);
       this.canopyInstances.setMatrixAt(i, canopyMatrix);
       
-      // Store obstacle
+      // Store trunk obstacle (narrower, for target placement)
       this.obstacles.push({
-        type: 'tree',
+        type: 'trunk',
+        x: tree.x, 
+        z: tree.z,
+        radius: FOREST.DECIDUOUS_TRUNK_RADIUS * trunkWidthScale,
+        minY: tree.y,
+        maxY: tree.y + trunkHeight,
+      });
+      
+      // Store canopy obstacle (wider, for drone collision)
+      this.obstacles.push({
+        type: 'canopy',
         x: tree.x, 
         z: tree.z,
         radius: Math.max(canopyWidth, canopyDepth),
-        minY: tree.y,
+        minY: tree.y + trunkHeight,
         maxY: tree.y + trunkHeight + canopyHeight * 2,
       });
     });
