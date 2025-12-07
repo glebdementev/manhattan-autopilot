@@ -42,8 +42,9 @@ export class ForestGenerator {
     console.log('Planting trees...');
     this.createTrees();
     
-    console.log('Adding bushes...');
-    this.createBushes();
+    // Bushes temporarily disabled
+    // console.log('Adding bushes...');
+    // this.createBushes();
     
     console.log('Forest generation complete!');
     return this.forestGroup;
@@ -76,6 +77,10 @@ export class ForestGenerator {
     const density = FOREST.TREE_DENSITY;
     const numTrees = Math.floor(size * size * density);
     
+    // Minimum distance between trees (meters)
+    const MIN_TREE_DISTANCE = 6;
+    const minDistSq = MIN_TREE_DISTANCE * MIN_TREE_DISTANCE;
+    
     // Seeded random
     let seed = this.seed * 7;
     const random = () => {
@@ -87,14 +92,32 @@ export class ForestGenerator {
     const coniferData = [];
     const deciduousData = [];
     
+    // Track all placed tree positions for distance checking
+    const placedTrees = [];
+    
     for (let i = 0; i < numTrees; i++) {
       const x = (random() - 0.5) * size;
       const z = (random() - 0.5) * size;
       
       if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
       
+      // Check minimum distance to all placed trees
+      let tooClose = false;
+      for (const tree of placedTrees) {
+        const dx = x - tree.x;
+        const dz = z - tree.z;
+        if (dx * dx + dz * dz < minDistSq) {
+          tooClose = true;
+          break;
+        }
+      }
+      if (tooClose) continue;
+      
       const y = this.getTerrainHeight(x, z);
       const isConifer = random() < FOREST.CONIFER_RATIO;
+      
+      // Add to placed trees list
+      placedTrees.push({ x, z });
       
       if (isConifer) {
         // Reduced height variation (0.85 to 1.0 multiplier instead of random range)
