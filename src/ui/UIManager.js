@@ -98,6 +98,7 @@ export class UIManager extends EventEmitter {
     });
     
     el.btnSave.addEventListener('click', () => this.emit('saveModel'));
+    el.btnCreateReport.addEventListener('click', () => this.emit('createReport'));
 
     // LiDAR configuration
     el.btnApplyLidar.addEventListener('click', () => {
@@ -250,6 +251,12 @@ export class UIManager extends EventEmitter {
   enableDownload(enabled) {
     if (this.elements.btnDownloadModel) {
       this.elements.btnDownloadModel.disabled = !enabled;
+    }
+  }
+
+  enableReport(enabled) {
+    if (this.elements.btnCreateReport) {
+      this.elements.btnCreateReport.disabled = !enabled;
     }
   }
 

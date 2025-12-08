@@ -21,3 +21,4 @@ export { PathFollowingController } from './PathFollowingController.js';
 export { PathFollowingDataCollector } from './PathFollowingDataCollector.js';
 export { PathPredictor } from './PathPredictor.js';
 export { TrainingOrchestrator } from './TrainingOrchestrator.js';
+export { ReportGenerator } from './ReportGenerator.js';

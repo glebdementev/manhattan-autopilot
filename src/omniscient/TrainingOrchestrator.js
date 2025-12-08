@@ -329,10 +329,17 @@ export class TrainingOrchestrator {
   }
 
   /**
-   * Load model
+   * Load model from IndexedDB
    */
   async load(modelName = 'path-predictor') {
     return await this.predictor.load(modelName);
+  }
+
+  /**
+   * Load default model from bundled file
+   */
+  async loadDefaultModel(url = './default-model.json') {
+    return await this.predictor.loadFromURL(url);
   }
 
   /**

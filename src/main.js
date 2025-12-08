@@ -15,7 +15,8 @@ import {
   OmniscientPathGenerator,
   OmniscientController,
   PathFollowingController,
-  TrainingOrchestrator
+  TrainingOrchestrator,
+  ReportGenerator
 } from './omniscient/index.js';
 
 class Simulation {
@@ -97,17 +98,41 @@ class Simulation {
       drone, lidar, forestGenerator, sceneManager
     );
     
-    // Try to load existing model
-    this.trainingOrchestrator.load().then(loaded => {
-      if (loaded) {
-        console.log('Loaded trained model');
-        this.createLearnedController();
-        this.components.ui.enableSave(true);
-        this.components.ui.enableDownload(true);
-        this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
-        this.components.ui.setModelReady(true);
-      }
-    });
+    // Load model: prefer user's custom model (IndexedDB), fall back to bundled default
+    this.loadModelWithFallback();
+  }
+
+  async loadModelWithFallback() {
+    // First try user's custom model from IndexedDB
+    const customLoaded = await this.trainingOrchestrator.load();
+    if (customLoaded) {
+      console.log('Loaded custom model from browser storage');
+      this.activateLoadedModel();
+      this.switchToLearnedMode();
+      return;
+    }
+    
+    // Fall back to bundled default model
+    const defaultLoaded = await this.trainingOrchestrator.loadDefaultModel();
+    if (defaultLoaded) {
+      console.log('Loaded default model');
+      this.activateLoadedModel();
+      this.switchToLearnedMode();
+    }
+  }
+
+  switchToLearnedMode() {
+    this.components.ui.setMode('learned');
+    this.setNavigationMode('learned');
+  }
+
+  activateLoadedModel() {
+    this.createLearnedController();
+    this.components.ui.enableSave(true);
+    this.components.ui.enableDownload(true);
+    this.components.ui.enableReport(true);
+    this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
+    this.components.ui.setModelReady(true);
   }
 
   createLearnedController() {
@@ -176,6 +201,7 @@ class Simulation {
     ui.on('saveModel', () => this.saveModel());
     ui.on('uploadModel', (files) => this.loadModelFromFiles(files));
     ui.on('downloadModel', () => this.downloadModel());
+    ui.on('createReport', () => this.createReport());
     ui.on('lidarConfigChange', (config) => this.updateLidarConfig(config));
     
     // Keyboard
@@ -212,6 +238,7 @@ class Simulation {
       const stats = await this.trainingOrchestrator.generateTrainingData(numEpisodes);
       console.log(`Generated ${stats.totalSamples} samples`);
       ui.enableTrain(stats.totalSamples > 0);
+      ui.enableReport(stats.totalSamples > 0);
     } catch (e) {
       console.error('Generation failed:', e);
     }
@@ -240,10 +267,7 @@ class Simulation {
       });
       
       console.log('Training complete');
-      this.createLearnedController();
-      ui.enableSave(true);
-      ui.enableDownload(true);
-      ui.setModelReady(true);
+      this.activateLoadedModel();
     } catch (e) {
       console.error('Training failed:', e);
     }
@@ -266,11 +290,7 @@ class Simulation {
     const loaded = await this.trainingOrchestrator.load();
     if (loaded) {
       console.log('Model loaded');
-      this.createLearnedController();
-      this.components.ui.enableSave(true);
-      this.components.ui.enableDownload(true);
-      this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
-      this.components.ui.setModelReady(true);
+      this.activateLoadedModel();
     }
   }
 
@@ -283,15 +303,27 @@ class Simulation {
     }
   }
 
+  createReport() {
+    const stats = this.trainingOrchestrator.getStats();
+    const predictor = this.trainingOrchestrator.getPredictor();
+    const trainingHistory = predictor.getTrainingHistory();
+    
+    const modelInfo = {
+      observationDim: predictor.observationDim,
+      actionDim: predictor.actionDim,
+      architecture: 'MLP (128→128→64→32)',
+    };
+    
+    const report = ReportGenerator.generate(stats, trainingHistory, modelInfo);
+    ReportGenerator.download(report);
+    console.log('Report created and downloaded');
+  }
+
   async loadModelFromFiles(files) {
     const loaded = await this.trainingOrchestrator.loadFromFiles(files);
     if (loaded) {
       console.log('Model loaded from files');
-      this.createLearnedController();
-      this.components.ui.enableSave(true);
-      this.components.ui.enableDownload(true);
-      this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
-      this.components.ui.setModelReady(true);
+      this.activateLoadedModel();
     }
   }
 

@@ -238,6 +238,25 @@ export class PathPredictor {
       return false;
     }
   }
+
+  /**
+   * Load model from URL (e.g. bundled default model)
+   */
+  async loadFromURL(url) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      await this.importWeights(data);
+      console.log(`Model loaded from '${url}'`);
+      return true;
+    } catch (e) {
+      console.warn(`Could not load model from URL '${url}':`, e.message);
+      return false;
+    }
+  }
   
   /**
    * Export model weights as JSON
