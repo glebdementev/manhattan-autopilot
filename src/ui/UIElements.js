@@ -140,7 +140,7 @@ export function createInfoPanelHTML() {
         <button id="btn-close-modal" class="modal-close">Close</button>
       </div>
     </div>
-    <input type="file" id="model-file-input" accept=".json,.bin" multiple style="display:none">
+    <input type="file" id="model-file-input" accept=".json" style="display:none">
   `;
 }
 

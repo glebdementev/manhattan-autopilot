@@ -187,12 +187,19 @@ export class PathPredictor {
   }
   
   /**
-   * Save model to local files (downloads)
+   * Download model as single JSON file containing all weights
    */
   async download(name = 'path-predictor') {
     this.assertModelReady();
-    await this.model.save(`downloads://${name}`);
-    console.log(`Model downloaded as '${name}'`);
+    const data = await this.exportWeights();
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    console.log(`Model downloaded as '${name}.json'`);
   }
 
   /**
@@ -209,13 +216,23 @@ export class PathPredictor {
   }
 
   /**
-   * Load model from local files (json + weights)
+   * Load model from single JSON weights file
    */
   async loadFromFiles(files) {
     try {
-      const sources = this.normalizeModelFiles(files);
-      const loadedModel = await tf.loadLayersModel(tf.io.browserFiles(sources));
-      return this.applyLoadedModel(loadedModel, sources[0].name);
+      const fileList = Array.from(files || []);
+      const jsonFile = fileList.find(f => f.name.toLowerCase().endsWith('.json'));
+      
+      if (!jsonFile) {
+        throw new Error('Select a model JSON file');
+      }
+      
+      const text = await jsonFile.text();
+      const data = JSON.parse(text);
+      
+      await this.importWeights(data);
+      console.log(`Model loaded from '${jsonFile.name}'`);
+      return true;
     } catch (e) {
       console.warn('Could not load model from files:', e.message);
       return false;
@@ -308,19 +325,6 @@ export class PathPredictor {
     });
     console.log(`Model loaded from '${sourceName}'`);
     return true;
-  }
-
-  normalizeModelFiles(files) {
-    const fileList = Array.from(files || []);
-    const jsonFile = fileList.find(f => f.name.toLowerCase().endsWith('.json'));
-    const weightFiles = fileList.filter(f => f !== jsonFile && f.name.toLowerCase().endsWith('.bin'));
-
-    if (!jsonFile || weightFiles.length === 0) {
-      throw new Error('Select the exported model JSON and weight BIN files.');
-    }
-
-    weightFiles.sort((a, b) => a.name.localeCompare(b.name));
-    return [jsonFile, ...weightFiles];
   }
 
   assertModelReady() {
