@@ -41,6 +41,8 @@ export const DRONE = {
   SIZE: 0.8,              // Drone box size (meters)
   MAX_SPEED: 8,           // Maximum speed in m/s
   MAX_ACCELERATION: 6.0,  // Maximum acceleration in m/s²
+  MAX_YAW_RATE: 3.0,      // Maximum yaw rate in rad/s (~170°/s)
+  YAW_ACCELERATION: 8.0,  // Yaw acceleration in rad/s²
   DRAG_COEFFICIENT: 0.5,  // Air resistance
   HOVER_POWER: 0.3,       // Power needed to maintain altitude
   VERTICAL_SPEED: 4,      // Vertical movement speed

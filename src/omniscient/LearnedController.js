@@ -3,6 +3,8 @@
  * 
  * Uses the neural network trained on omniscient paths to predict
  * navigation actions from LIDAR observations.
+ * 
+ * Outputs LOCAL velocity: [forward, vertical, yawRate]
  */
 import { DRONE, LIDAR } from '../config.js';
 
@@ -24,6 +26,9 @@ export class LearnedController {
     
     // Stats
     this.predictionCount = 0;
+    
+    // Yaw control gain
+    this.yawGain = 2.0;
   }
   
   /**
@@ -65,7 +70,7 @@ export class LearnedController {
   
   /**
    * Main update - predicts action from current observation
-   * @returns {Array} [vx, vy, vz] normalized velocity commands [-1, 1]
+   * @returns {Array} [forward, vertical, yawRate] normalized LOCAL velocity commands [-1, 1]
    */
   update() {
     if (!this.hasTarget || !this.predictor.isReady()) {
@@ -84,28 +89,31 @@ export class LearnedController {
     const observation = this.buildObservation(state);
     
     // Get prediction from model
+    // Model predicts LOCAL direction: [localX, dirY, localZ]
+    // localX = right/left in local frame
+    // dirY = up/down
+    // localZ = forward/back in local frame (forward is +Z)
     const prediction = this.predictor.predict(observation);
     this.predictionCount++;
     
-    // Convert from local to world frame
-    const cosYaw = Math.cos(state.yaw);
-    const sinYaw = Math.sin(state.yaw);
+    // Extract components
+    const localX = prediction[0];  // Right/left
+    const vertical = prediction[1]; // Up/down
+    const localZ = prediction[2];   // Forward/back
     
-    // Prediction is in local frame [localX, Y, localZ]
-    const localX = prediction[0];
-    const localY = prediction[1];
-    const localZ = prediction[2];
+    // Convert local X component to yaw rate
+    // If we want to go right (positive localX), turn right (positive yaw rate)
+    const yawRate = localX * this.yawGain;
     
-    // Transform to world frame
-    const worldX = localX * cosYaw + localZ * sinYaw;
-    const worldZ = -localX * sinYaw + localZ * cosYaw;
+    // Forward speed based on forward component (localZ)
+    let forward = localZ;
     
     // Apply smoothing
-    const smoothedX = this.lastAction[0] * (1 - this.smoothingFactor) + worldX * this.smoothingFactor;
-    const smoothedY = this.lastAction[1] * (1 - this.smoothingFactor) + localY * this.smoothingFactor;
-    const smoothedZ = this.lastAction[2] * (1 - this.smoothingFactor) + worldZ * this.smoothingFactor;
+    const smoothedForward = this.lastAction[0] * (1 - this.smoothingFactor) + forward * this.smoothingFactor;
+    const smoothedVertical = this.lastAction[1] * (1 - this.smoothingFactor) + vertical * this.smoothingFactor;
+    const smoothedYawRate = this.lastAction[2] * (1 - this.smoothingFactor) + yawRate * this.smoothingFactor;
     
-    this.lastAction = [smoothedX, smoothedY, smoothedZ];
+    this.lastAction = [smoothedForward, smoothedVertical, smoothedYawRate];
     
     // Slow down when approaching target
     let speedFactor = 1.0;
@@ -114,9 +122,9 @@ export class LearnedController {
     }
     
     return [
-      Math.max(-1, Math.min(1, smoothedX * speedFactor)),
-      Math.max(-1, Math.min(1, smoothedY * speedFactor)),
-      Math.max(-1, Math.min(1, smoothedZ * speedFactor)),
+      Math.max(-1, Math.min(1, smoothedForward * speedFactor)),
+      Math.max(-1, Math.min(1, smoothedVertical * speedFactor)),
+      Math.max(-1, Math.min(1, smoothedYawRate)),
     ];
   }
   

@@ -117,13 +117,13 @@ export class Drone {
   }
   
   /**
-   * Set velocity setpoint (main control interface)
-   * @param {number} vx - Target X velocity [-1, 1]
-   * @param {number} vy - Target Y velocity [-1, 1]
-   * @param {number} vz - Target Z velocity [-1, 1]
+   * Set LOCAL velocity setpoint (main control interface)
+   * @param {number} forward - Forward velocity [-1, 1] (positive = forward)
+   * @param {number} vertical - Vertical velocity [-1, 1] (positive = up)
+   * @param {number} yawRate - Yaw rate [-1, 1] (positive = turn right)
    */
-  setControls(vx, vy, vz) {
-    this.physics.setVelocitySetpoint(vx, vy, vz);
+  setControls(forward, vertical, yawRate) {
+    this.physics.setVelocitySetpoint(forward, vertical, yawRate);
   }
   
   /**

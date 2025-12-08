@@ -1,80 +1,53 @@
 /**
- * ObstacleGrid - Collision adapter for omniscient planner
+ * ObstacleGrid - thin adapter over ForestGenerator collision logic
  *
- * Previously this used a custom spatial hash over analytic cylinders from
- * `forest.getObstacles()`. The drone physics and LiDAR, however, rely on
- * `MeshCollider` + `forest.getRaycastTargets()` (actual render meshes).
+ * We already have a robust collision "computer" in `ForestGenerator`:
+ *  - `isPositionClear(x, y, z, margin)` uses box–cylinder checks against
+ *    the same obstacle data that drives LiDAR/target placement.
+ *  - `isPathClear(startX, startY, startZ, endX, endY, endZ, margin)` walks
+ *    along a segment and reuses `isPositionClear`.
  *
- * That mismatch is what allowed A* to plan "clear" paths that still collided
- * at runtime. To keep a single source of truth, this now delegates to the same
- * mesh collider logic, with a slightly inflated radius for extra clearance.
+ * The omniscient planner should use exactly that, but with a *larger*
+ * clearance margin than the runtime drone, so paths never graze canopies
+ * and trunks that the mesh collider might still hit.
  */
-import { DRONE, FOREST } from '../config.js';
-import { MeshCollider } from '../collision/MeshCollider.js';
+
+// Extra safety margin for omniscient planning (on top of drone size)
+const CLEAR_MARGIN = 1.0;
+// Softer margin for validating start/goal points (avoid over-rejecting on slopes)
+const SOFT_MARGIN = 0.4;
 
 export class ObstacleGrid {
   constructor(forestGenerator) {
     this.forest = forestGenerator;
-    
-    // Mesh-based collider using exact scene geometry
-    this.collider = new MeshCollider();
-    // Use a slightly larger radius so omniscient paths have a safety margin
-    this.clearRadius = DRONE.SIZE / 2 + 0.3;
-    this.collider.setDroneRadius(this.clearRadius);
-    this.collider.setTargets(forestGenerator.getRaycastTargets());
   }
   
   /**
-   * Check if a position is clear of obstacles and terrain
+   * Check if a position is clear of obstacles and terrain.
+   * Delegates directly to ForestGenerator's box-based collision.
    */
-  isPositionClear(x, y, z) {
-    // Terrain constraint (similar to DronePhysics terrain check)
-    const terrainY = this.forest.getTerrainHeight(x, z);
-    const droneBottom = y - DRONE.SIZE * 0.175;
-    if (droneBottom < terrainY) return false;
-    
-    // Simple canopy/ceiling guard to bound search vertically
-    if (y + this.clearRadius > FOREST.CANOPY_HEIGHT) return false;
-    
-    // Mesh-based collision using the same collider algorithm as the drone
-    const result = this.collider.checkCollision(x, y, z);
-    return !result.collided;
+  isPositionClear(x, y, z, margin = CLEAR_MARGIN) {
+    return this.forest.isPositionClear(x, y, z, margin);
   }
   
   /**
    * Check if straight line between two points is clear.
-   * Uses swept mesh collision along the segment plus terrain checks.
+   * Delegates to ForestGenerator's path clearance checker.
    */
-  isLineClear(from, to) {
-    // Swept mesh collision along the path
-    const result = this.collider.checkSweptCollision(
+  isLineClear(from, to, margin = CLEAR_MARGIN) {
+    return this.forest.isPathClear(
       from.x, from.y, from.z,
       to.x, to.y, to.z,
+      margin,
     );
-    if (result.collided) return false;
-    
-    // Also ensure we don't clip terrain between endpoints
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const dz = to.z - from.z;
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    const stepSize = Math.max(this.clearRadius * 0.5, 0.25);
-    const steps = Math.max(1, Math.ceil(dist / stepSize));
-    
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const x = from.x + dx * t;
-      const y = from.y + dy * t;
-      const z = from.z + dz * t;
-      
-      const terrainY = this.forest.getTerrainHeight(x, z);
-      const droneBottom = y - DRONE.SIZE * 0.175;
-      if (droneBottom < terrainY) {
-        return false;
-      }
-    }
-    
-    return true;
+  }
+  
+  getClearMargin() {
+    return CLEAR_MARGIN;
+  }
+  
+  getSoftMargin() {
+    return SOFT_MARGIN;
   }
 }
 

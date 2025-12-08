@@ -1,14 +1,19 @@
 /**
  * InputController - Handles keyboard input for manual drone control
- * Outputs velocity setpoints [-1, 1] (same as RL agent)
+ * Outputs LOCAL velocity setpoints: [forward, vertical, yawRate]
+ * 
+ * Controls:
+ * - W/S or Up/Down: Forward/Backward movement
+ * - A/D or Left/Right: Turn left/right (yaw)
+ * - Q/Z: Up/Down (vertical)
  */
 export class InputController {
   constructor() {
     this.input = {
       forward: false,
       backward: false,
-      left: false,
-      right: false,
+      turnLeft: false,
+      turnRight: false,
       up: false,
       down: false,
     };
@@ -29,10 +34,10 @@ export class InputController {
         this.input.backward = true;
         break;
       case 'a': case 'arrowleft':
-        this.input.left = true;
+        this.input.turnLeft = true;
         break;
       case 'd': case 'arrowright':
-        this.input.right = true;
+        this.input.turnRight = true;
         break;
       case 'q':
         this.input.up = true;
@@ -55,10 +60,10 @@ export class InputController {
         this.input.backward = false;
         break;
       case 'a': case 'arrowleft':
-        this.input.left = false;
+        this.input.turnLeft = false;
         break;
       case 'd': case 'arrowright':
-        this.input.right = false;
+        this.input.turnRight = false;
         break;
       case 'q':
         this.input.up = false;
@@ -70,26 +75,25 @@ export class InputController {
   }
 
   /**
-   * Get velocity setpoint action from input state
-   * @returns {number[]} [vx, vy, vz] velocity setpoints in [-1, 1]
+   * Get LOCAL velocity setpoint action from input state
+   * @returns {number[]} [forward, vertical, yawRate] in [-1, 1]
    * 
-   * Camera is at +Z looking at -Z, so:
-   * - W (forward) = -Z velocity
-   * - A (left) = -X velocity
-   * - Q (up) = +Y velocity
+   * - forward: positive = move in drone's facing direction
+   * - vertical: positive = up
+   * - yawRate: positive = turn right, negative = turn left
    */
   getAction() {
-    let vx = 0;
-    let vy = 0;
-    let vz = 0;
+    let forward = 0;
+    let vertical = 0;
+    let yawRate = 0;
     
-    if (this.input.forward) vz = -0.8;
-    if (this.input.backward) vz = 0.8;
-    if (this.input.left) vx = -0.8;
-    if (this.input.right) vx = 0.8;
-    if (this.input.up) vy = 0.8;
-    if (this.input.down) vy = -0.5;
+    if (this.input.forward) forward = 0.8;
+    if (this.input.backward) forward = -0.5;
+    if (this.input.turnLeft) yawRate = -0.8;
+    if (this.input.turnRight) yawRate = 0.8;
+    if (this.input.up) vertical = 0.8;
+    if (this.input.down) vertical = -0.5;
     
-    return [vx, vy, vz];
+    return [forward, vertical, yawRate];
   }
 }

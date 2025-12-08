@@ -137,12 +137,12 @@ export class NavigationEnvironment {
       action = this.controller.update();
     }
     
-    // Apply velocity
-    const vx = Math.max(-1, Math.min(1, action[0]));
-    const vy = Math.max(-1, Math.min(1, action[1]));
-    const vz = Math.max(-1, Math.min(1, action[2]));
+    // Apply LOCAL velocity controls
+    const forward = Math.max(-1, Math.min(1, action[0]));
+    const vertical = Math.max(-1, Math.min(1, action[1]));
+    const yawRate = Math.max(-1, Math.min(1, action[2]));
     
-    this.drone.setControls(vx, vy, vz);
+    this.drone.setControls(forward, vertical, yawRate);
     this.drone.update(dt);
     
     // Update lidar

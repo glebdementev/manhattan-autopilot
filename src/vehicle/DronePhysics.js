@@ -1,8 +1,10 @@
 /**
  * DronePhysics - handles drone movement, collision detection, and physics simulation
  * 
- * Uses velocity setpoint control: RL agent outputs target velocity, 
- * internal PD controller handles thrust generation.
+ * Uses LOCAL velocity setpoint control:
+ * - forward/back velocity in drone's facing direction
+ * - up/down velocity in world Y
+ * - yaw rate for turning left/right
  */
 import { DRONE } from '../config.js';
 import { MeshCollider } from '../collision/MeshCollider.js';
@@ -22,8 +24,9 @@ export class DronePhysics {
     
     // Facing direction (yaw only)
     this.yaw = 0;
+    this.yawRate = 0; // Current yaw angular velocity
     
-    // Velocity controller (converts setpoints to thrust)
+    // Velocity controller (converts local setpoints to world thrust)
     this.velocityController = new VelocityController();
     
     // Stats
@@ -85,21 +88,24 @@ export class DronePhysics {
   }
   
   /**
-   * Set velocity setpoint (main control interface)
-   * @param {number} vx - Target X velocity normalized [-1, 1] → [-MAX_SPEED, MAX_SPEED]
-   * @param {number} vy - Target Y velocity normalized [-1, 1]
-   * @param {number} vz - Target Z velocity normalized [-1, 1]
+   * Set velocity setpoint in LOCAL coordinates (main control interface)
+   * @param {number} forward - Forward velocity normalized [-1, 1] (positive = forward)
+   * @param {number} vertical - Vertical velocity normalized [-1, 1] (positive = up)
+   * @param {number} yawInput - Yaw rate normalized [-1, 1] (positive = turn right)
    */
-  setVelocitySetpoint(vx, vy, vz) {
-    this.velocityController.setTargetFromAction(
-      Math.max(-1, Math.min(1, vx)),
-      Math.max(-1, Math.min(1, vy)),
-      Math.max(-1, Math.min(1, vz))
+  setVelocitySetpoint(forward, vertical, yawInput) {
+    // Store yaw rate target (will be applied in update)
+    this.targetYawRate = Math.max(-1, Math.min(1, yawInput)) * DRONE.MAX_YAW_RATE;
+    
+    // Set local velocity target (forward/back and vertical)
+    this.velocityController.setTargetFromLocalAction(
+      Math.max(-1, Math.min(1, forward)),
+      Math.max(-1, Math.min(1, vertical))
     );
   }
   
   /**
-   * Update drone physics with velocity control
+   * Update drone physics with local velocity control
    * @returns {Object} - { moved: boolean, dx, dy, dz } for mesh update
    */
   update(dt) {
@@ -128,10 +134,31 @@ export class DronePhysics {
       return { moved: false };
     }
     
-    // Get thrust from velocity controller
-    const thrust = this.velocityController.computeThrust(this.vx, this.vy, this.vz);
+    // Update yaw (turning)
+    if (this.targetYawRate !== undefined) {
+      // Smooth yaw rate change
+      const yawAccel = DRONE.YAW_ACCELERATION || 8;
+      const yawDiff = this.targetYawRate - this.yawRate;
+      this.yawRate += Math.sign(yawDiff) * Math.min(Math.abs(yawDiff), yawAccel * dt);
+      
+      // Apply yaw drag
+      this.yawRate *= (1 - DRONE.DRAG_COEFFICIENT * dt);
+      
+      // Update yaw angle
+      this.yaw += this.yawRate * dt;
+      
+      // Normalize yaw to [-PI, PI]
+      while (this.yaw > Math.PI) this.yaw -= 2 * Math.PI;
+      while (this.yaw < -Math.PI) this.yaw += 2 * Math.PI;
+    }
     
-    // Apply thrust as acceleration
+    // Get local velocity from controller
+    const localVel = this.velocityController.getLocalVelocity();
+    
+    // Get thrust from velocity controller (in local space)
+    const thrust = this.velocityController.computeLocalThrust(this.vx, this.vy, this.vz, this.yaw);
+    
+    // Apply thrust as acceleration (already in world space from computeLocalThrust)
     const accelX = thrust.thrustX * DRONE.MAX_ACCELERATION;
     const accelY = thrust.thrustY * DRONE.MAX_ACCELERATION;
     const accelZ = thrust.thrustZ * DRONE.MAX_ACCELERATION;
@@ -147,15 +174,20 @@ export class DronePhysics {
     this.vy *= (1 - drag * dt);
     this.vz *= (1 - drag * dt);
     
-    // Clamp speed
-    const currentSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy + this.vz * this.vz);
-    if (currentSpeed > DRONE.MAX_SPEED) {
-      const scale = DRONE.MAX_SPEED / currentSpeed;
+    // Clamp horizontal speed (vx, vz) separately from vertical
+    const horizSpeed = Math.sqrt(this.vx * this.vx + this.vz * this.vz);
+    if (horizSpeed > DRONE.MAX_SPEED) {
+      const scale = DRONE.MAX_SPEED / horizSpeed;
       this.vx *= scale;
-      this.vy *= scale;
       this.vz *= scale;
     }
     
+    // Clamp vertical speed
+    if (Math.abs(this.vy) > DRONE.MAX_SPEED) {
+      this.vy = Math.sign(this.vy) * DRONE.MAX_SPEED;
+    }
+    
+    const currentSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy + this.vz * this.vz);
     if (currentSpeed > this.maxSpeedReached) {
       this.maxSpeedReached = currentSpeed;
     }
@@ -320,6 +352,8 @@ export class DronePhysics {
     this.vy = 0;
     this.vz = 0;
     this.yaw = 0;
+    this.yawRate = 0;
+    this.targetYawRate = 0;
     this.distanceTraveled = 0;
     this.maxSpeedReached = 0;
     this.lastCollision = false;

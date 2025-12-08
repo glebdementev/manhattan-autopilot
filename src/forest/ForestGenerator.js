@@ -261,9 +261,10 @@ export class ForestGenerator {
   }
 
   /**
-   * Generate a target position - STRAIGHT AHEAD, NO ROTATION
-   * Target is at SAME X as drone, just different Z (forward)
-   * Ensures target is at least 2m away from nearest tree or bush
+   * Generate a target position around the drone
+   * - Always at least TARGET.MIN_DISTANCE away (in horizontal distance)
+   * - Random angle around the drone (not just straight ahead)
+   * - Stays within forest bounds and away from nearby trunks/bushes
    */
   generateTargetPosition(
     currentX,
@@ -276,32 +277,37 @@ export class ForestGenerator {
       seed = (seed * 16807) % 2147483647;
       return (seed - 1) / 2147483646;
     };
-    
-    let bestTarget = null;
-    let attempts = 0;
-    const MAX_ATTEMPTS = 50;
 
-    while (attempts < MAX_ATTEMPTS) {
-      attempts++;
-      
-      // Target at SAME X, just forward in Z
-      const x = currentX; // SAME X - no angle!
+    const MAX_ATTEMPTS = 50;
+    let bestTarget = null;
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const angle = random() * Math.PI * 2;
       const dist = minDist + random() * (maxDist - minDist);
-      const z = currentZ - dist; // Forward is -Z
-      
+
+      // Sample in horizontal plane around current position
+      const x = currentX + Math.cos(angle) * dist;
+      const z = currentZ + Math.sin(angle) * dist;
+
+      // Keep some margin from forest edges
+      const margin = FOREST.SIZE * 0.45;
+      if (Math.abs(x) > margin || Math.abs(z) > margin) {
+        continue;
+      }
+
       const groundY = this.getTerrainHeight(x, z);
-      const y = groundY + 1.5; // Same height as drone spawn
-      
-      // Check distance to nearest tree
+      const y = groundY + 1.5; // Approx. flying height near ground
+
+      // Ensure we don't place the target too close to trunks/bushes
       if (this.isPositionValidForTarget(x, z)) {
         return { x, y, z };
       }
-      
-      // Store last generated as fallback
+
+      // Store last generated as fallback (still respects minDist/maxDist)
       bestTarget = { x, y, z };
     }
-    
-    console.warn("Could not find valid target position far enough from trees, using fallback");
+
+    console.warn('Could not find valid target position far enough from obstacles, using fallback');
     return bestTarget;
   }
 

@@ -92,10 +92,10 @@ export class Lidar {
         const yawAngle = -halfHorizFov + t * LIDAR.FOV;
         
         // Calculate direction
-        // Start with forward direction, apply pitch, then yaw
+        // Forward is +Z in local space (drone faces +Z when yaw=0)
         const x = Math.sin(yawAngle) * cosPitch;
         const y = sinPitch;
-        const z = -Math.cos(yawAngle) * cosPitch;
+        const z = Math.cos(yawAngle) * cosPitch;
         
         directions.push(new THREE.Vector3(x, y, z).normalize());
       }

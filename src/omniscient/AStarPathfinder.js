@@ -9,6 +9,7 @@ const VERTICAL_RESOLUTION = 0.5;
 export class AStarPathfinder {
   constructor(obstacleGrid) {
     this.obstacleGrid = obstacleGrid;
+    this.softMargin = obstacleGrid.getSoftMargin ? obstacleGrid.getSoftMargin() : undefined;
   }
   
   /**
@@ -16,6 +17,17 @@ export class AStarPathfinder {
    * @returns {Array|null} Array of {x, y, z} waypoints, or null if no path
    */
   findPath(startX, startY, startZ, goalX, goalY, goalZ) {
+    const softMargin = this.softMargin;
+    // Reject immediately if start/goal are not clear (use softer margin to avoid false negatives)
+    if (!this.obstacleGrid.isPositionClear(startX, startY, startZ, softMargin)) {
+      console.warn('A* start is not clear');
+      return null;
+    }
+    if (!this.obstacleGrid.isPositionClear(goalX, goalY, goalZ, softMargin)) {
+      console.warn('A* goal is not clear');
+      return null;
+    }
+    
     const start = this.toGrid(startX, startY, startZ);
     const goal = this.toGrid(goalX, goalY, goalZ);
     
@@ -37,6 +49,7 @@ export class AStarPathfinder {
       iterations++;
       
       const current = openSet.pop().node;
+      const currentWorld = this.toWorld(current);
       const currentKey = this.gridKey(current);
       
       if (this.isAtGoal(current, goal)) {
@@ -52,7 +65,9 @@ export class AStarPathfinder {
         if (closedSet.has(neighborKey)) continue;
         
         const worldPos = this.toWorld(neighbor);
+        // Require both the neighbor cell to be clear and the edge between cells to be clear
         if (!this.obstacleGrid.isPositionClear(worldPos.x, worldPos.y, worldPos.z)) continue;
+        if (!this.obstacleGrid.isLineClear(currentWorld, worldPos)) continue;
         
         const tentativeG = gScore.get(currentKey) + this.moveCost(current, neighbor);
         
@@ -145,10 +160,23 @@ export class AStarPathfinder {
       node = cameFrom.get(key);
     }
     
-    // Ensure exact start and end
+    // Ensure exact start, and snap/append goal only if clear from last node
     if (path.length > 0) {
       path[0] = { x: startX, y: startY, z: startZ };
-      path[path.length - 1] = { x: goalX, y: goalY, z: goalZ };
+
+      const last = path[path.length - 1];
+      const goalPoint = { x: goalX, y: goalY, z: goalZ };
+
+      const canReachGoal =
+        this.obstacleGrid.isPositionClear(goalPoint.x, goalPoint.y, goalPoint.z) &&
+        this.obstacleGrid.isLineClear(last, goalPoint);
+
+      if (canReachGoal) {
+        path[path.length - 1] = goalPoint;
+      } else {
+        // Keep the last safe node; do not force an unsafe goal into the path
+        console.warn('A* goal not directly reachable from last node; leaving last safe waypoint.');
+      }
     }
     
     return path;

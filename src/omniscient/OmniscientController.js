@@ -2,6 +2,7 @@
  * OmniscientController - Follows pre-computed omniscient paths
  * 
  * This controller has perfect knowledge - it follows waypoints exactly.
+ * Outputs LOCAL velocity: [forward, vertical, yawRate]
  */
 import { DRONE, CONTROLLER } from '../config.js';
 
@@ -23,6 +24,9 @@ export class OmniscientController {
     // Control params
     this.waypointReachDist = CONTROLLER.WAYPOINT_REACH_DIST || 1.5;
     this.targetSpeed = CONTROLLER.TARGET_SPEED || 5.0;
+    
+    // Yaw control gain
+    this.yawGain = 2.0;
   }
   
   /**
@@ -93,7 +97,7 @@ export class OmniscientController {
   }
   
   /**
-   * Update - returns velocity command to follow path
+   * Update - returns LOCAL velocity command: [forward, vertical, yawRate]
    */
   update() {
     if (!this.hasTarget || !this.path || this.path.length === 0) {
@@ -116,40 +120,51 @@ export class OmniscientController {
       waypoint = this.path[this.currentWaypointIndex];
     }
     
-    // Direction to waypoint
+    // Direction to waypoint (horizontal only for yaw calculation)
     const wdx = waypoint.x - state.x;
     const wdy = waypoint.y - state.y;
     const wdz = waypoint.z - state.z;
-    const dist = Math.sqrt(wdx * wdx + wdy * wdy + wdz * wdz);
+    const horizDist = Math.sqrt(wdx * wdx + wdz * wdz);
+    const totalDist = Math.sqrt(wdx * wdx + wdy * wdy + wdz * wdz);
     
-    if (dist < 0.5) {
+    if (totalDist < 0.5) {
       return [0, 0, 0];
     }
     
-    // Normalize
-    const dirX = wdx / dist;
-    const dirY = wdy / dist;
-    const dirZ = wdz / dist;
+    // Calculate desired yaw (angle to waypoint)
+    const desiredYaw = Math.atan2(wdx, wdz);
     
-    // Speed control
+    // Calculate yaw error (shortest angle)
+    let yawError = desiredYaw - state.yaw;
+    while (yawError > Math.PI) yawError -= 2 * Math.PI;
+    while (yawError < -Math.PI) yawError += 2 * Math.PI;
+    
+    // Yaw rate command (proportional control)
+    const yawRate = Math.max(-1, Math.min(1, yawError * this.yawGain));
+    
+    // Speed control - slow down when turning sharply or approaching target
     let speedFactor = 1.0;
     const distToTarget = this.getDistanceToTarget();
     if (distToTarget < 5.0) {
       speedFactor = Math.max(0.3, distToTarget / 5.0);
     }
     
-    // Convert to velocity commands
+    // Reduce forward speed when turning sharply
+    const turnFactor = Math.max(0.3, 1.0 - Math.abs(yawError) / Math.PI);
+    speedFactor *= turnFactor;
+    
+    // Forward velocity (in drone's local frame)
     const maxSpeed = DRONE.MAX_SPEED;
     const speed = this.targetSpeed * speedFactor;
+    const forward = speed / maxSpeed;
     
-    const vx = (dirX * speed) / maxSpeed;
-    const vy = (dirY * speed) / maxSpeed;
-    const vz = (dirZ * speed) / maxSpeed;
+    // Vertical velocity (world Y direction)
+    const vertical = (wdy / totalDist) * (speed / maxSpeed);
     
     return [
-      Math.max(-1, Math.min(1, vx)),
-      Math.max(-1, Math.min(1, vy)),
-      Math.max(-1, Math.min(1, vz)),
+      Math.max(-1, Math.min(1, forward)),
+      Math.max(-1, Math.min(1, vertical)),
+      yawRate,
     ];
   }
   
