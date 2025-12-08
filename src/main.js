@@ -334,20 +334,12 @@ class Simulation {
   }
 
   updateUI() {
-    const { drone, navEnvironment, ui, lidar } = this.components;
+    const { drone, navEnvironment, ui } = this.components;
     
     const state = drone.getState();
     const distToTarget = navEnvironment.getDistanceToTarget();
     
     ui.updateDroneStats(state.speed, state.y, distToTarget);
-    
-    // Navigation status
-    const minDist = lidar.getMinDistance();
-    let status = 'Clear path';
-    if (minDist < 3) status = 'Avoiding obstacle';
-    else if (minDist < 6) status = 'Obstacle nearby';
-    
-    ui.updateNavigationStatus(status);
   }
 }
 

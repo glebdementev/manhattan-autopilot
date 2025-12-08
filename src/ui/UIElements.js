@@ -20,10 +20,6 @@ export function createInfoPanelHTML() {
             <span>Learned Model</span>
           </label>
         </div>
-        <div class="stat">
-          <span class="label">Status:</span>
-          <span id="nav-status">Ready</span>
-        </div>
       </div>
       
       <div class="section">
@@ -146,9 +142,6 @@ export function createUIContainer() {
     speedValue: document.getElementById('speed-value'),
     altitudeValue: document.getElementById('altitude-value'),
     targetDistValue: document.getElementById('target-dist-value'),
-    
-    // Navigation
-    navStatus: document.getElementById('nav-status'),
     
     // Model status
     modelStatus: document.getElementById('model-status'),

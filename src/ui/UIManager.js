@@ -163,15 +163,6 @@ export class UIManager extends EventEmitter {
     StatsDisplay.updateDroneStats(this.elements, speed, altitude, distToTarget);
   }
 
-  updateNavigationStatus(status) {
-    const el = this.elements;
-    if (el.navStatus) {
-      el.navStatus.textContent = status;
-      el.navStatus.style.color = status.includes('Clear') ? '#4f4' : 
-                                  status.includes('Avoiding') ? '#f44' : '#ff4';
-    }
-  }
-
   updateEpisodeStats(steps) {
     // No longer displayed
   }

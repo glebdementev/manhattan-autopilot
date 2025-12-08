@@ -49,17 +49,6 @@ export function updateAgentStats(elements, stats) {
 }
 
 /**
- * Update navigation status in the UI
- * @param {Object} elements - UI element references
- * @param {number} distToTarget - Distance to target
- * @param {string} status - Navigation status text
- */
-export function updateNavigation(elements, distToTarget, status) {
-  elements.targetDistValue.textContent = Math.round(distToTarget);
-  elements.navStatus.textContent = status;
-}
-
-/**
  * Set training status message
  * @param {Object} elements - UI element references
  * @param {string} message - Status message

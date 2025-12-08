@@ -1,16 +1,13 @@
 /**
- * TrainingOrchestrator - Runs thousands of episodes to collect training data
+ * TrainingOrchestrator - Runs episodes to collect training data
  * 
- * Workflow:
- * 1. Generate random start/target positions
- * 2. Use OmniscientPathGenerator to find perfect path
- * 3. Simulate drone following path, collecting LIDAR observations at each step
- * 4. Train PathPredictor on collected data
+ * Uses ForestGenerator as single source of truth for position generation.
+ * Supports scene variation (unique forests per episode batch).
  */
 import { OmniscientPathGenerator } from './OmniscientPathGenerator.js';
 import { TrainingDataCollector } from './TrainingDataCollector.js';
 import { PathPredictor } from './PathPredictor.js';
-import { FOREST, TARGET, LIDAR } from '../config.js';
+import { TARGET } from '../config.js';
 
 // Simulation step size for data collection
 const STEP_SIZE = 0.5; // meters between samples
@@ -37,6 +34,7 @@ export class TrainingOrchestrator {
       failedPaths: 0,
       totalSamples: 0,
       trainingLoss: null,
+      uniqueScenes: 0,
     };
     
     // Callbacks
@@ -54,6 +52,8 @@ export class TrainingOrchestrator {
   
   /**
    * Generate training data from multiple episodes
+   * Uses ForestGenerator for position generation (single source of truth)
+   * 
    * @param {number} numEpisodes - Number of episodes to generate
    * @param {Object} options - Generation options
    */
@@ -71,14 +71,28 @@ export class TrainingOrchestrator {
     let seed = Date.now();
     
     for (let episode = 0; episode < numEpisodes; episode++) {
-      seed = (seed * 16807) % 2147483647;
+      seed = this.nextSeed(seed);
       
-      // Generate random start position
-      const start = this.generateRandomPosition(seed);
-      seed = (seed * 16807) % 2147483647;
+      // Use ForestGenerator for spawn position (same as online mode, center spawn)
+      const start = this.forest.findSpawnPosition();
+      seed = this.nextSeed(seed);
       
-      // Generate random target position
-      const target = this.generateTargetPosition(start.x, start.z, minDist, maxDist, seed);
+      // Use ForestGenerator for target position (same as online mode)
+      const target = this.forest.generateTargetPosition(
+        start.x, start.z,
+        minDist, maxDist,
+        seed
+      );
+      
+      // Verify minimum distance is enforced
+      const actualDist = Math.sqrt(
+        (target.x - start.x) ** 2 + (target.z - start.z) ** 2
+      );
+      if (actualDist < minDist) {
+        console.warn(`Episode ${episode}: Target too close (${actualDist.toFixed(1)}m < ${minDist}m), skipping`);
+        this.stats.failedPaths++;
+        continue;
+      }
       
       // Generate omniscient path
       const path = this.pathGenerator.generatePath(
@@ -135,66 +149,48 @@ export class TrainingOrchestrator {
   }
   
   /**
-   * Generate random position in forest
+   * Generate training data across multiple unique scenes
+   * Each scene has unique terrain (perlin noise), tree distribution, and bushes
+   * 
+   * @param {number} numScenes - Number of unique forest scenes
+   * @param {number} episodesPerScene - Episodes per scene
+   * @param {Function} regenerateForest - Callback to regenerate forest with new seed
    */
-  generateRandomPosition(seed) {
-    const random = () => {
-      seed = (seed * 16807) % 2147483647;
-      return (seed - 1) / 2147483646;
-    };
-    
-    const size = FOREST.SIZE * 0.4; // Stay away from edges
-    
-    // Try to find a clear position
-    for (let i = 0; i < 20; i++) {
-      const x = (random() - 0.5) * size;
-      const z = (random() - 0.5) * size;
-      const groundY = this.forest.getTerrainHeight(x, z);
-      const y = groundY + FOREST.FLYING_HEIGHT_MIN + random() * 
-        (FOREST.FLYING_HEIGHT_MAX - FOREST.FLYING_HEIGHT_MIN);
-      
-      if (this.pathGenerator.isPositionClear(x, y, z)) {
-        return { x, y, z };
-      }
+  async generateMultiSceneData(numScenes, episodesPerScene, regenerateForest) {
+    if (!regenerateForest) {
+      throw new Error('regenerateForest callback required for multi-scene generation');
     }
     
-    // Fallback to center
-    const groundY = this.forest.getTerrainHeight(0, 0);
-    return { x: 0, y: groundY + 3, z: 0 };
+    let baseSeed = Date.now();
+    
+    for (let scene = 0; scene < numScenes; scene++) {
+      // Generate unique seed for this scene
+      const sceneSeed = baseSeed + scene * 1000;
+      
+      // Regenerate forest with new seed (unique terrain, trees, bushes)
+      const newForest = await regenerateForest(sceneSeed);
+      this.setForest(newForest);
+      this.stats.uniqueScenes++;
+      
+      console.log(`Scene ${scene + 1}/${numScenes} (seed: ${sceneSeed})`);
+      
+      // Generate episodes in this scene
+      await this.generateTrainingData(episodesPerScene, {
+        clearPrevious: false, // Keep accumulating samples
+      });
+      
+      // Yield to UI between scenes
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    
+    return this.stats;
   }
   
   /**
-   * Generate target position relative to start
+   * Advance seed deterministically
    */
-  generateTargetPosition(startX, startZ, minDist, maxDist, seed) {
-    const random = () => {
-      seed = (seed * 16807) % 2147483647;
-      return (seed - 1) / 2147483646;
-    };
-    
-    for (let i = 0; i < 20; i++) {
-      const angle = random() * Math.PI * 2;
-      const dist = minDist + random() * (maxDist - minDist);
-      
-      const x = startX + Math.cos(angle) * dist;
-      const z = startZ + Math.sin(angle) * dist;
-      
-      // Check bounds
-      if (Math.abs(x) > FOREST.SIZE * 0.45 || Math.abs(z) > FOREST.SIZE * 0.45) {
-        continue;
-      }
-      
-      const groundY = this.forest.getTerrainHeight(x, z);
-      const y = groundY + 1.0 + random() * 2;
-      
-      if (this.pathGenerator.isPositionClear(x, y, z)) {
-        return { x, y, z };
-      }
-    }
-    
-    // Fallback
-    const groundY = this.forest.getTerrainHeight(startX, startZ - minDist);
-    return { x: startX, y: groundY + 2, z: startZ - minDist };
+  nextSeed(seed) {
+    return (seed * 16807) % 2147483647;
   }
   
   /**

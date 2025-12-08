@@ -354,12 +354,6 @@ input[type="checkbox"]:checked::after {
   color: #a0e0ff !important;
 }
 
-/* Navigation status colors */
-#nav-status {
-  font-weight: 600;
-  color: #80d0ff;
-}
-
 /* Success rate color */
 #success-rate {
   font-weight: 700 !important;

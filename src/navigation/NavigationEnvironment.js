@@ -60,12 +60,13 @@ export class NavigationEnvironment {
   
   /**
    * Reset environment for new episode
+   * Drone always spawns at map center.
    */
   reset() {
     this.drone.reset();
     this.episodeSteps = 0;
     
-    // Spawn position
+    // Spawn position (center of map)
     const baseSpawn = this.forest.findSpawnPosition();
     const groundY = this.forest.getTerrainHeight(baseSpawn.x, baseSpawn.z);
     const spawnPos = {

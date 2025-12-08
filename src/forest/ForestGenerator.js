@@ -251,6 +251,7 @@ export class ForestGenerator {
 
   /**
    * Find a valid spawn position
+   * Drone always spawns at map center.
    */
   findSpawnPosition() {
     const x = 0;
@@ -259,11 +260,21 @@ export class ForestGenerator {
     const y = groundY + FOREST.FLYING_HEIGHT_MIN + 2;
     return { x, y, z };
   }
+  
+  /**
+   * Create seeded random function
+   */
+  createRandom(seed) {
+    return () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+  }
 
   /**
    * Generate a target position around the drone
-   * - Always at least TARGET.MIN_DISTANCE away (in horizontal distance)
-   * - Random angle around the drone (not just straight ahead)
+   * - Always at least minDist away (ENFORCED - never closer)
+   * - Random angle around the drone
    * - Stays within forest bounds and away from nearby trunks/bushes
    */
   generateTargetPosition(
@@ -273,13 +284,11 @@ export class ForestGenerator {
     maxDist = TARGET.MAX_DISTANCE,
     seed = Date.now()
   ) {
-    const random = () => {
-      seed = (seed * 16807) % 2147483647;
-      return (seed - 1) / 2147483646;
-    };
+    const random = this.createRandom(seed);
 
     const MAX_ATTEMPTS = 50;
     let bestTarget = null;
+    let bestDist = 0;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const angle = random() * Math.PI * 2;
@@ -296,18 +305,39 @@ export class ForestGenerator {
       }
 
       const groundY = this.getTerrainHeight(x, z);
-      const y = groundY + 1.5; // Approx. flying height near ground
+      const y = groundY + 1.5;
+
+      // Verify actual distance is >= minDist (CRITICAL)
+      const actualDist = Math.sqrt(
+        (x - currentX) ** 2 + (z - currentZ) ** 2
+      );
+      
+      if (actualDist < minDist) {
+        continue; // Never allow targets closer than minDist
+      }
 
       // Ensure we don't place the target too close to trunks/bushes
       if (this.isPositionValidForTarget(x, z)) {
         return { x, y, z };
       }
 
-      // Store last generated as fallback (still respects minDist/maxDist)
-      bestTarget = { x, y, z };
+      // Track best fallback (furthest valid distance)
+      if (actualDist > bestDist) {
+        bestDist = actualDist;
+        bestTarget = { x, y, z };
+      }
     }
 
-    console.warn('Could not find valid target position far enough from obstacles, using fallback');
+    // Fallback: place target at exactly minDist in a random direction
+    if (!bestTarget || bestDist < minDist) {
+      const fallbackAngle = random() * Math.PI * 2;
+      const x = currentX + Math.cos(fallbackAngle) * minDist;
+      const z = currentZ + Math.sin(fallbackAngle) * minDist;
+      const groundY = this.getTerrainHeight(x, z);
+      bestTarget = { x, y: groundY + 1.5, z };
+      console.warn('Using fallback target at minimum distance');
+    }
+
     return bestTarget;
   }
 
