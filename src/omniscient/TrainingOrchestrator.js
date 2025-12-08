@@ -3,9 +3,11 @@
  * 
  * Uses ForestGenerator as single source of truth for position generation.
  * Supports scene variation (unique forests per episode batch).
+ * 
+ * Uses path-following approach: model receives path waypoints in observation.
  */
 import { OmniscientPathGenerator } from './OmniscientPathGenerator.js';
-import { TrainingDataCollector } from './TrainingDataCollector.js';
+import { PathFollowingDataCollector } from './PathFollowingDataCollector.js';
 import { PathPredictor } from './PathPredictor.js';
 import { TARGET } from '../config.js';
 
@@ -19,9 +21,9 @@ export class TrainingOrchestrator {
     this.forest = forestGenerator;
     this.sceneManager = sceneManager;
     
-    // Components
+    // Components - using path-following approach (no LIDAR needed)
     this.pathGenerator = new OmniscientPathGenerator(forestGenerator);
-    this.dataCollector = new TrainingDataCollector(lidar);
+    this.dataCollector = new PathFollowingDataCollector();
     this.predictor = new PathPredictor(
       this.dataCollector.getObservationDim(),
       this.dataCollector.getActionDim()
@@ -77,28 +79,50 @@ export class TrainingOrchestrator {
       const start = this.forest.findSpawnPosition();
       seed = this.nextSeed(seed);
       
-      // Use ForestGenerator for target position (same as online mode)
-      const target = this.forest.generateTargetPosition(
-        start.x, start.z,
-        minDist, maxDist,
-        seed
-      );
+      // Search for a target that is both collision-free and has a valid omniscient path
+      const MAX_TARGET_ATTEMPTS = 50;
+      let target = null;
+      let path = null;
       
-      // Verify minimum distance is enforced
-      const actualDist = Math.sqrt(
-        (target.x - start.x) ** 2 + (target.z - start.z) ** 2
-      );
-      if (actualDist < minDist) {
-        console.warn(`Episode ${episode}: Target too close (${actualDist.toFixed(1)}m < ${minDist}m), skipping`);
+      for (let attempt = 0; attempt < MAX_TARGET_ATTEMPTS; attempt++) {
+        seed = this.nextSeed(seed);
+        
+        const candidate = this.forest.generateTargetPosition(
+          start.x, start.z,
+          minDist, maxDist,
+          seed
+        );
+        
+        // Forest could not find a non-intersecting target for this seed
+        if (!candidate) {
+          continue;
+        }
+        
+        // Verify minimum distance is enforced (extra safety)
+        const actualDist = Math.sqrt(
+          (candidate.x - start.x) ** 2 + (candidate.z - start.z) ** 2
+        );
+        if (actualDist < minDist) {
+          continue;
+        }
+        
+        // Generate omniscient path for this candidate
+        const candidatePath = this.pathGenerator.generatePath(
+          start.x, start.y, start.z,
+          candidate.x, candidate.y, candidate.z
+        );
+        
+        if (candidatePath && candidatePath.length >= 2) {
+          target = candidate;
+          path = candidatePath;
+          break;
+        }
+      }
+      
+      if (!target || !path) {
         this.stats.failedPaths++;
         continue;
       }
-      
-      // Generate omniscient path
-      const path = this.pathGenerator.generatePath(
-        start.x, start.y, start.z,
-        target.x, target.y, target.z
-      );
       
       this.stats.episodesGenerated++;
       
@@ -194,7 +218,7 @@ export class TrainingOrchestrator {
   }
   
   /**
-   * Collect training samples along a path
+   * Collect training samples along a path (path-following approach)
    */
   collectSamplesAlongPath(path, target) {
     let samplesCollected = 0;
@@ -221,31 +245,14 @@ export class TrainingOrchestrator {
         const y = from.y + dy * t;
         const z = from.z + dz * t;
         
-        // Calculate yaw (facing direction of movement)
-        const yaw = Math.atan2(-dx, -dz);
+        // Drone state (only position needed for this simple collector)
+        const droneState = { x, y, z };
         
-        // Set drone position for LIDAR scan
-        this.drone.setPosition(x, y, z);
-        this.drone.setYaw(yaw);
-        
-        // Perform LIDAR scan
-        this.lidar.scan();
-        
-        // Get drone state
-        const droneState = {
-          x, y, z,
-          vx: 0, vy: 0, vz: 0, // Not moving during data collection
-          yaw,
-        };
-        
-        // Check line of sight to target
-        const canSeeTarget = this.lidar.isPathToPointClear(target.x, target.y, target.z, 0.5);
-        
-        // Next waypoint is the end of current segment (or next waypoint)
+        // Next waypoint is the end of current segment
         const nextWaypoint = to;
         
-        // Collect sample
-        this.dataCollector.collectSample(droneState, target, nextWaypoint, canSeeTarget);
+        // Collect sample (direction to next waypoint)
+        this.dataCollector.collectSample(droneState, nextWaypoint);
         samplesCollected++;
       }
     }
@@ -306,34 +313,18 @@ export class TrainingOrchestrator {
   }
   
   /**
-   * Save model and training data
+   * Save model only (samples are ephemeral)
    */
   async save(modelName = 'path-predictor') {
     await this.predictor.save(modelName);
-    
-    // Also save training data to localStorage
-    const data = this.dataCollector.exportSamples();
-    localStorage.setItem(`${modelName}-data`, JSON.stringify(data));
-    
-    console.log(`Saved model and ${data.numSamples} samples`);
+    console.log(`Saved model`);
   }
   
   /**
-   * Load model and training data
+   * Load model
    */
   async load(modelName = 'path-predictor') {
-    const loaded = await this.predictor.load(modelName);
-    
-    // Try to load training data
-    const dataStr = localStorage.getItem(`${modelName}-data`);
-    if (dataStr) {
-      const data = JSON.parse(dataStr);
-      this.dataCollector.importSamples(data);
-      this.stats.totalSamples = data.numSamples;
-      console.log(`Loaded ${data.numSamples} samples`);
-    }
-    
-    return loaded;
+    return await this.predictor.load(modelName);
   }
   
   /**

@@ -14,7 +14,7 @@ import {
 import {
   OmniscientPathGenerator,
   OmniscientController,
-  LearnedController,
+  PathFollowingController,
   TrainingOrchestrator
 } from './omniscient/index.js';
 
@@ -80,10 +80,14 @@ class Simulation {
   }
 
   setupNavigation() {
-    const { drone, lidar, forestGenerator, sceneManager } = this.components;
+    const { drone, lidar, forestGenerator, sceneManager, navEnvironment } = this.components;
     
     // Create path generator
     this.pathGenerator = new OmniscientPathGenerator(forestGenerator);
+    // Share path generator with navigation environment for target validation
+    if (navEnvironment && navEnvironment.setPathChecker) {
+      navEnvironment.setPathChecker(this.pathGenerator);
+    }
     
     // Create omniscient controller
     this.omniscientController = new OmniscientController(drone, this.pathGenerator);
@@ -106,11 +110,14 @@ class Simulation {
   }
 
   createLearnedController() {
-    const { drone, lidar } = this.components;
+    const { drone } = this.components;
     const predictor = this.trainingOrchestrator.getPredictor();
     
     if (predictor.isReady()) {
-      this.learnedController = new LearnedController(drone, lidar, predictor);
+      // Path-following controller: receives path waypoints, learns to follow them
+      this.learnedController = new PathFollowingController(
+        drone, predictor, this.pathGenerator
+      );
     }
   }
 
@@ -299,6 +306,14 @@ class Simulation {
         this.omniscientController = new OmniscientController(drone, this.pathGenerator);
         this.trainingOrchestrator.setForest(forestGenerator);
         
+        // Keep navigation environment using the same path generator for target validation
+        if (navEnvironment && navEnvironment.setPathChecker) {
+          navEnvironment.setPathChecker(this.pathGenerator);
+        }
+        
+        // Recreate learned controller with new path generator
+        this.createLearnedController();
+        
         // Re-set controller
         this.setNavigationMode(this.navigationMode);
       }
@@ -321,8 +336,11 @@ class Simulation {
     if (this.navigationMode === 'omniscient' && this.omniscientController) {
       const path = this.omniscientController.getPath();
       pathVisualizer.updatePath(path);
+    } else if (this.navigationMode === 'learned' && this.learnedController) {
+      // Path-following controller also has the path
+      const path = this.learnedController.getPath();
+      pathVisualizer.updatePath(path);
     } else {
-      // Hide path when not in omniscient mode
       pathVisualizer.updatePath(null);
     }
   }

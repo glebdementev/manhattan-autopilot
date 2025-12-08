@@ -45,12 +45,6 @@ export class OmniscientController {
       x, y, z
     );
     this.currentWaypointIndex = 0;
-    
-    if (this.path) {
-      console.log(`Omniscient path: ${this.path.length} waypoints`);
-    } else {
-      console.warn('Could not find omniscient path');
-    }
   }
   
   /**

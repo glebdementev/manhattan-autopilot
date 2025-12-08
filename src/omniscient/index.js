@@ -3,7 +3,7 @@
  * 
  * Two navigation modes:
  * 1. OmniscientController - Follows perfect A* paths (has full knowledge)
- * 2. LearnedController - Uses neural network trained on omniscient paths
+ * 2. PathFollowingController - Neural network that follows given paths
  */
 
 // Core pathfinding
@@ -15,9 +15,9 @@ export { OmniscientPathGenerator } from './OmniscientPathGenerator.js';
 
 // Controllers
 export { OmniscientController } from './OmniscientController.js';
-export { LearnedController } from './LearnedController.js';
+export { PathFollowingController } from './PathFollowingController.js';
 
-// Training
-export { TrainingDataCollector } from './TrainingDataCollector.js';
+// Training (path-following approach)
+export { PathFollowingDataCollector } from './PathFollowingDataCollector.js';
 export { PathPredictor } from './PathPredictor.js';
 export { TrainingOrchestrator } from './TrainingOrchestrator.js';

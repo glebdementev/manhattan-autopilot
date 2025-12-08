@@ -139,6 +139,14 @@ export class PathPredictor {
       throw new Error('Model not built. Call build() first.');
     }
     
+    // Guard against mismatched observation dimensions (e.g. legacy models)
+    if (!observation || observation.length !== this.observationDim) {
+      console.warn(
+        `PathPredictor.predict: observation dim mismatch (expected ${this.observationDim}, got ${observation ? observation.length : 0}). Returning zero action.`
+      );
+      return new Float32Array(this.actionDim);
+    }
+    
     const input = tf.tensor2d([Array.from(observation)]);
     const output = this.model.predict(input);
     const action = output.dataSync();
@@ -186,7 +194,23 @@ export class PathPredictor {
    */
   async load(name = 'path-predictor') {
     try {
-      this.model = await tf.loadLayersModel(`indexeddb://${name}`);
+      const loadedModel = await tf.loadLayersModel(`indexeddb://${name}`);
+      
+      // Check input dimension of loaded model against current observationDim.
+      // If it doesn't match (e.g. legacy model with LIDAR inputs), ignore it.
+      const firstLayer = loadedModel.layers[0];
+      const inputShape = firstLayer && firstLayer.batchInputShape
+        ? firstLayer.batchInputShape[1]
+        : null;
+      
+      if (inputShape !== this.observationDim) {
+        console.warn(
+          `PathPredictor.load: ignoring legacy model '${name}' (inputDim=${inputShape}, expected=${this.observationDim}).`
+        );
+        return false;
+      }
+      
+      this.model = loadedModel;
       this.model.compile({
         optimizer: tf.train.adam(0.001),
         loss: 'meanSquaredError',

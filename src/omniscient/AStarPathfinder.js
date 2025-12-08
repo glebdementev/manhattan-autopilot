@@ -20,11 +20,9 @@ export class AStarPathfinder {
     const softMargin = this.softMargin;
     // Reject immediately if start/goal are not clear (use softer margin to avoid false negatives)
     if (!this.obstacleGrid.isPositionClear(startX, startY, startZ, softMargin)) {
-      console.warn('A* start is not clear');
       return null;
     }
     if (!this.obstacleGrid.isPositionClear(goalX, goalY, goalZ, softMargin)) {
-      console.warn('A* goal is not clear');
       return null;
     }
     
@@ -81,7 +79,6 @@ export class AStarPathfinder {
       }
     }
     
-    console.warn(`A* failed after ${iterations} iterations`);
     return null;
   }
   
@@ -173,9 +170,6 @@ export class AStarPathfinder {
 
       if (canReachGoal) {
         path[path.length - 1] = goalPoint;
-      } else {
-        // Keep the last safe node; do not force an unsafe goal into the path
-        console.warn('A* goal not directly reachable from last node; leaving last safe waypoint.');
       }
     }
     

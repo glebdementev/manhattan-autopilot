@@ -14,6 +14,9 @@ export class NavigationEnvironment {
     this.forest = forestGenerator;
     this.sceneManager = sceneManager;
     
+    // Optional omniscient path generator (shared with controllers)
+    this.pathChecker = null;
+    
     // Controller (set externally - either OmniscientController or LearnedController)
     this.controller = null;
     
@@ -39,6 +42,13 @@ export class NavigationEnvironment {
     if (this.controller) {
       this.controller.setTarget(this.targetX, this.targetY, this.targetZ);
     }
+  }
+  
+  /**
+   * Set path checker (omniscient path generator) used to validate targets
+   */
+  setPathChecker(pathGenerator) {
+    this.pathChecker = pathGenerator;
   }
   
   /**
@@ -101,23 +111,58 @@ export class NavigationEnvironment {
    */
   generateTarget(minDist = TARGET.MIN_DISTANCE, maxDist = TARGET.MAX_DISTANCE) {
     const state = this.drone.getState();
-    const target = this.forest.generateTargetPosition(
-      state.x, state.z,
-      minDist, maxDist,
-      this.targetSeed || Date.now()
-    );
+    const baseSeed = this.targetSeed || Date.now();
+    const MAX_ATTEMPTS = 100;
     
-    const groundY = this.forest.getTerrainHeight(target.x, target.z);
-    this.targetX = target.x;
-    this.targetY = groundY + FIXED_TARGET_HEIGHT;
-    this.targetZ = target.z;
-    
-    // Update controller target
-    if (this.controller) {
-      this.controller.setTarget(this.targetX, this.targetY, this.targetZ);
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const seed = baseSeed + attempt;
+      const candidate = this.forest.generateTargetPosition(
+        state.x, state.z,
+        minDist, maxDist,
+        seed
+      );
+      
+      if (!candidate) {
+        continue; // Forest could not find a non-intersecting position for this seed
+      }
+      
+      const groundY = this.forest.getTerrainHeight(candidate.x, candidate.z);
+      const targetX = candidate.x;
+      const targetY = groundY + FIXED_TARGET_HEIGHT;
+      const targetZ = candidate.z;
+      
+      let hasPath = true;
+      if (this.pathChecker) {
+        const path = this.pathChecker.generatePath(
+          state.x, state.y, state.z,
+          targetX, targetY, targetZ
+        );
+        hasPath = !!(path && path.length >= 2);
+      }
+      
+      if (!hasPath) {
+        continue; // Try another target until we find one with a valid path
+      }
+      
+      // Accept this target
+      this.targetX = targetX;
+      this.targetY = targetY;
+      this.targetZ = targetZ;
+      
+      // Update scene marker immediately
+      if (this.sceneManager) {
+        this.sceneManager.setTargetPosition(this.targetX, this.targetY, this.targetZ);
+      }
+      return;
     }
-    
-    // Update scene marker
+
+    // Hard fallback: place target minDist ahead on +X (no path check, just don't leave it at origin)
+    const fallbackX = state.x + minDist;
+    const fallbackZ = state.z;
+    const groundY = this.forest.getTerrainHeight(fallbackX, fallbackZ);
+    this.targetX = fallbackX;
+    this.targetY = groundY + FIXED_TARGET_HEIGHT;
+    this.targetZ = fallbackZ;
     if (this.sceneManager) {
       this.sceneManager.setTargetPosition(this.targetX, this.targetY, this.targetZ);
     }
