@@ -2,11 +2,14 @@
  * EpisodeManager - Handles episode lifecycle (reset, end, splash screens)
  */
 export class EpisodeManager {
-  constructor(rlEnvironment, ui) {
-    this.rlEnvironment = rlEnvironment;
+  constructor(navEnvironment, ui) {
+    this.navEnvironment = navEnvironment;
     this.ui = ui;
     this.isRegenerating = false;
     this.currentObservation = null;
+    
+    // Seed for randomization
+    this.seed = Date.now();
     
     // Callbacks
     this.onReset = null;
@@ -18,11 +21,15 @@ export class EpisodeManager {
   reset() {
     if (this.isRegenerating) return;
     
-    this.currentObservation = this.rlEnvironment.reset();
+    // Randomize seed for new episode
+    this.seed = Date.now() ^ (Math.random() * 0xFFFFFFFF >>> 0);
+    this.navEnvironment.setSeed(this.seed);
+    
+    this.currentObservation = this.navEnvironment.reset();
     
     if (this.onReset) this.onReset();
     
-    console.log('Episode reset');
+    console.log('Episode reset with seed:', this.seed);
     return this.currentObservation;
   }
 
@@ -44,7 +51,11 @@ export class EpisodeManager {
     }
     
     setTimeout(() => {
-      this.currentObservation = this.rlEnvironment.reset();
+      // Randomize seed for new episode
+      this.seed = Date.now() ^ (Math.random() * 0xFFFFFFFF >>> 0);
+      this.navEnvironment.setSeed(this.seed);
+      
+      this.currentObservation = this.navEnvironment.reset();
       
       if (this.onReset) this.onReset();
       
@@ -73,4 +84,3 @@ export class EpisodeManager {
     this.currentObservation = obs;
   }
 }
-

@@ -4,9 +4,6 @@
 
 export { UIManager } from './UIManager.js';
 export { SplashScreens } from './SplashScreens.js';
-export { TrainingScreen } from './TrainingScreen.js';
 export { EventEmitter } from './EventEmitter.js';
 export { createUIContainer, createInfoPanelHTML } from './UIElements.js';
 export * as StatsDisplay from './StatsDisplay.js';
-export * as RewardDisplay from './RewardDisplay.js';
-

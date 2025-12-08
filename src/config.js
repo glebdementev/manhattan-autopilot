@@ -1,6 +1,5 @@
 /**
  * Configuration constants for the Forest Drone Navigation simulation
- * OPTIMIZED for performance
  */
 
 // Forest generation
@@ -10,7 +9,7 @@ export const FOREST = {
   TERRAIN_HEIGHT: 5,      // Maximum terrain height variation
   TERRAIN_SEGMENTS: 80,   // Terrain mesh resolution
   
-  // Trees - DENSE FOREST for obstacle avoidance training
+  // Trees - DENSE FOREST for obstacle avoidance
   TREE_DENSITY: 0.025,    // Denser trees (~1000 trees)
   CONIFER_RATIO: 0.5,     // Ratio of coniferous to deciduous trees
   
@@ -18,23 +17,23 @@ export const FOREST = {
   CONIFER_MIN_HEIGHT: 18,
   CONIFER_MAX_HEIGHT: 24,
   CONIFER_TRUNK_RADIUS: 0.5,
-  CONIFER_CROWN_RADIUS: 4.5,  // Slightly larger crowns
+  CONIFER_CROWN_RADIUS: 4.5,
   
   // Deciduous trees (oak/maple style)
   DECIDUOUS_MIN_HEIGHT: 16,
   DECIDUOUS_MAX_HEIGHT: 22,
   DECIDUOUS_TRUNK_RADIUS: 0.6,
-  DECIDUOUS_CROWN_RADIUS: 5.5,  // Slightly larger crowns
+  DECIDUOUS_CROWN_RADIUS: 5.5,
   
-  // Bushes - more obstacles at ground level
-  BUSH_DENSITY: 0.015,    // More bushes
+  // Bushes
+  BUSH_DENSITY: 0.015,
   BUSH_MIN_SIZE: 1.0,
-  BUSH_MAX_SIZE: 4.0,     // Larger bushes
+  BUSH_MAX_SIZE: 4.0,
   
   // Canopy
-  CANOPY_HEIGHT: 12,      // Average height of forest canopy
-  FLYING_HEIGHT_MIN: 1.5, // Minimum safe flying height above ground
-  FLYING_HEIGHT_MAX: 10,  // Maximum flying height (under canopy)
+  CANOPY_HEIGHT: 12,
+  FLYING_HEIGHT_MIN: 1.5,
+  FLYING_HEIGHT_MAX: 10,
 };
 
 // Drone physics
@@ -47,14 +46,16 @@ export const DRONE = {
   VERTICAL_SPEED: 4,      // Vertical movement speed
 };
 
-// LiDAR configuration - FORWARD CONE
+// LiDAR configuration - Multi-layer 3D scanning
 export const LIDAR = {
-  NUM_RAYS: 16,                   // 16 rays in forward cone
-  FOV: Math.PI / 3,               // 60° total (±30° from forward)
-  MAX_RANGE: 25,                  // Maximum detection range (meters)
-  VISUALIZE: false,               // Disabled by default for performance
-  RAY_COLOR: 0x00ffaa,            // Color of LiDAR rays
-  HIT_COLOR: 0xff4444,            // Color of hit points
+  HORIZONTAL_RAYS: 12,    // Rays per vertical layer
+  VERTICAL_LAYERS: 4,     // Number of vertical layers (-30°, -10°, +10°, +30°)
+  FOV: Math.PI / 3,       // 60° horizontal FOV (±30° from forward)
+  VERTICAL_FOV: Math.PI / 3, // 60° vertical FOV (±30° from horizontal)
+  MAX_RANGE: 25,          // Maximum detection range (meters)
+  VISUALIZE: false,       // Disabled by default for performance
+  RAY_COLOR: 0x00ffaa,    // Color of LiDAR rays
+  HIT_COLOR: 0xff4444,    // Color of hit points
 };
 
 // Simulation
@@ -63,18 +64,24 @@ export const SIMULATION = {
   RENDER_FPS: 60,         // Target render framerate
 };
 
-// Controller
+// Navigation/Controller
 export const CONTROLLER = {
   TARGET_SPEED: 5,        // Target cruising speed in m/s
   OBSTACLE_AVOIDANCE_DIST: 4, // Distance to start avoiding obstacles
-  WAYPOINT_REACH_DIST: 3, // Distance to consider waypoint reached
+  WAYPOINT_REACH_DIST: 2, // Distance to consider waypoint reached
+};
+
+// Target placement distances (relative to drone)
+export const TARGET = {
+  MIN_DISTANCE: 20,       // Minimum distance to new target (meters) - NEVER closer
+  MAX_DISTANCE: 40,       // Maximum distance to new target (meters)
 };
 
 // Colors
 export const COLORS = {
   // Terrain
-  GROUND_LOW: 0x2d4a1c,   // Valley floor (darker green/brown)
-  GROUND_HIGH: 0x4a6b2a,  // Hilltops (lighter green)
+  GROUND_LOW: 0x2d4a1c,
+  GROUND_HIGH: 0x4a6b2a,
   
   // Trees
   CONIFER_TRUNK: 0x4a3728,
@@ -92,57 +99,19 @@ export const COLORS = {
   // Drone
   DRONE_BODY: 0xff6b35,
   DRONE_LIGHT: 0x00ffff,
-  
-  // Drone colors for different modes
-  DRONE_CLASSIC: 0x00aaff,    // Blue for classic controller
-  DRONE_AUTOPILOT: 0x00ff88,  // Green for neural autopilot
-  DRONE_MANUAL: 0xff8844,     // Orange for manual control
+  DRONE_AUTOPILOT: 0x00ff88,
+  DRONE_MANUAL: 0xff8844,
   
   // Target
   TARGET: 0xff00ff,
+  
+  // Path
+  PATH: 0x00ff88,
 };
 
 // Camera
 export const CAMERA = {
-  FOLLOW_HEIGHT: 2,       // Reduced from 8 - more horizontal view
-  FOLLOW_DISTANCE: 6,     // Reduced from 15 - closer to drone
+  FOLLOW_HEIGHT: 2,
+  FOLLOW_DISTANCE: 6,
   FOLLOW_SMOOTHING: 0.08,
-};
-
-// Reinforcement Learning Configuration
-export const RL_CONFIG = {
-  // Episode settings
-  MAX_EPISODE_STEPS: 1000,      // Longer episodes for longer distances
-  MAX_TARGET_DISTANCE: 80,      // Max distance for normalization
-  
-  // ===========================================
-  // NEURAL NETWORK
-  // ===========================================
-  HIDDEN_UNITS: [64, 32],   // Network for 25-dim observation
-  
-  // ===========================================
-  // TRAINING HYPERPARAMETERS
-  // ===========================================
-  LEARNING_RATE: 0.001,         // Learning rate for optimizer
-  POLICY_LEARNING_RATE: 0.05,   // Learning rate for policy updates
-  GAMMA: 0.99,                  // Discount factor
-  BATCH_SIZE: 64,               // Training batch size
-  BUFFER_SIZE: 2000,            // Smaller buffer for focused learning
-  MIN_BUFFER_SIZE: 100,         // Start training earlier
-  
-  // ===========================================
-  // EXPLORATION
-  // ===========================================
-  INITIAL_EXPLORATION: 0.5,     // Start with moderate exploration
-  EXPLORATION_DECAY: 0.995,     // Faster decay to reduce noise over time
-  MIN_EXPLORATION: 0.1,         // Keep some exploration
-  ACTION_NOISE: 0.15,           // Reduced noise magnitude
-  
-  // ===========================================
-  // TRAINING CONTROL
-  // ===========================================
-  TRAIN_INTERVAL: 20,           // Train every N steps
-  EPISODES_PER_SCENE: 50,       // Less frequent scene regeneration
-  AUTO_TRAIN: true,             // Whether to train automatically
-  TRAINING_SPEED: 1,            // Simulation speed multiplier during training
 };

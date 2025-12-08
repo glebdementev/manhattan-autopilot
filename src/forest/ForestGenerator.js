@@ -4,7 +4,7 @@
  * MODULAR: Each mesh component is in a separate file
  */
 import * as THREE from 'three';
-import { FOREST, DRONE } from '../config.js';
+import { FOREST, DRONE, TARGET } from '../config.js';
 import { PerlinNoise } from './PerlinNoise.js';
 import { TerrainMesh } from './TerrainMesh.js';
 import { ConiferMesh } from './ConiferMesh.js';
@@ -47,9 +47,8 @@ export class ForestGenerator {
     console.log('Planting trees...');
     this.createTrees();
     
-    // Bushes temporarily disabled
-    // console.log('Adding bushes...');
-    // this.createBushes();
+    console.log('Adding bushes...');
+    this.createBushes();
     
     console.log('Forest generation complete!');
     return this.forestGroup;
@@ -264,10 +263,15 @@ export class ForestGenerator {
   /**
    * Generate a target position - STRAIGHT AHEAD, NO ROTATION
    * Target is at SAME X as drone, just different Z (forward)
-   * Ensures target is at least 2m away from nearest tree
+   * Ensures target is at least 2m away from nearest tree or bush
    */
-  generateTargetPosition(currentX, currentZ, minDist = 3, maxDist = 10) {
-    let seed = Date.now();
+  generateTargetPosition(
+    currentX,
+    currentZ,
+    minDist = TARGET.MIN_DISTANCE,
+    maxDist = TARGET.MAX_DISTANCE,
+    seed = Date.now()
+  ) {
     const random = () => {
       seed = (seed * 16807) % 2147483647;
       return (seed - 1) / 2147483646;
@@ -302,15 +306,14 @@ export class ForestGenerator {
   }
 
   /**
-   * Check if position is valid for target (at least 2m from any tree)
+   * Check if position is valid for target (at least 2m from any tree or bush)
    */
   isPositionValidForTarget(x, z) {
     const MIN_DISTANCE = 2.0;
     
     for (const obstacle of this.obstacles) {
-      // Only check trunks for the "2 meters away from tree" rule
-      // Canopies shouldn't invalidate a target position unless we want to avoid them too
-      if (obstacle.type === 'trunk') {
+      // Check trunks and bushes (skip canopies)
+      if (obstacle.type === 'trunk' || obstacle.type === 'bush') {
         const dx = x - obstacle.x;
         const dz = z - obstacle.z;
         const dist = Math.sqrt(dx * dx + dz * dz);

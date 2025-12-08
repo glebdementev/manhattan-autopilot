@@ -1,14 +1,12 @@
 /**
- * Main entry point - Drone RL Navigation Simulation
+ * Main entry point - Drone Navigation with Reactive Obstacle Avoidance
  * 
- * Modes:
- * - Simulation: Manual drone control or autopilot (when model loaded)
- * - Training: Offline RL training with progress UI
+ * The drone uses LIDAR-based reactive navigation to reach targets
+ * while avoiding obstacles in the forest.
  */
 import {
   InputController,
   BoundsEnforcer,
-  TrainingController,
   EpisodeManager,
   ComponentFactory
 } from './simulation/index.js';
@@ -22,7 +20,6 @@ class Simulation {
     // Controllers
     this.inputController = null;
     this.boundsEnforcer = null;
-    this.trainingController = null;
     this.episodeManager = null;
     
     // State
@@ -38,18 +35,18 @@ class Simulation {
     this.perfLog = {
       update: 0,
       render: 0,
-      envStep: 0,
+      navStep: 0,
       camera: 0,
       ui: 0,
     };
-    this.perfLogInterval = 60; // Log every N frames
+    this.perfLogInterval = 60;
   }
 
   /**
    * Initialize the simulation
    */
   async init() {
-    console.log('Initializing Drone Navigator...');
+    console.log('Initializing Drone Navigator with Pathfinding...');
     
     // Create all components
     const container = document.getElementById('canvas-container');
@@ -73,14 +70,14 @@ class Simulation {
     this.animate();
     
     console.log('Simulation initialized!');
-    console.log('Use WASD/QZ to fly. Load a model or train one for autopilot.');
+    console.log('Drone will navigate reactively using LIDAR. Use WASD/QZ for manual override.');
   }
 
   /**
    * Setup controllers
    */
   setupControllers() {
-    const { drone, rlAgent, rlEnvironment, forestGenerator, ui } = this.components;
+    const { drone, navEnvironment, forestGenerator, ui } = this.components;
     
     // Input controller
     this.inputController = new InputController();
@@ -90,18 +87,7 @@ class Simulation {
     this.boundsEnforcer = new BoundsEnforcer(forestGenerator);
     
     // Episode manager
-    this.episodeManager = new EpisodeManager(rlEnvironment, ui);
-    
-    // Training controller
-    this.trainingController = new TrainingController(rlAgent, rlEnvironment, forestGenerator);
-    this.trainingController.onTrainingStart = () => {
-      this.isRunning = false;
-      ui.showTrainingScreen();
-    };
-    this.trainingController.onTrainingStop = () => {
-      ui.hideTrainingScreen();
-      this.resumeSimulation();
-    };
+    this.episodeManager = new EpisodeManager(navEnvironment, ui);
   }
 
   /**
@@ -117,24 +103,9 @@ class Simulation {
       lidar.setVisualizationEnabled(enabled);
     });
     
-    ui.on('startTraining', () => this.trainingController.start(ui));
-    ui.on('stopTraining', () => this.trainingController.stop());
-    ui.on('downloadModel', () => this.trainingController.downloadModel(ui));
-    ui.on('importModel', (file) => this.trainingController.importModel(file, ui));
-    
     // Keyboard input
     ui.on('keydown', (key) => this.inputController.handleKeyDown(key));
     ui.on('keyup', (key) => this.inputController.handleKeyUp(key));
-  }
-
-  /**
-   * Resume simulation after training
-   */
-  resumeSimulation() {
-    this.isRunning = true;
-    this.lastTime = performance.now();
-    this.episodeManager.reset();
-    this.animate();
   }
 
   /**
@@ -179,7 +150,7 @@ class Simulation {
     const n = this.perfLogInterval;
     console.log(`[PERF] Avg over ${n} frames:`,
       `update=${(this.perfLog.update / n).toFixed(2)}ms`,
-      `(env=${(this.perfLog.envStep / n).toFixed(2)}ms`,
+      `(nav=${(this.perfLog.navStep / n).toFixed(2)}ms`,
       `cam=${(this.perfLog.camera / n).toFixed(2)}ms`,
       `ui=${(this.perfLog.ui / n).toFixed(2)}ms)`,
       `render=${(this.perfLog.render / n).toFixed(2)}ms`
@@ -187,7 +158,7 @@ class Simulation {
     // Reset counters
     this.perfLog.update = 0;
     this.perfLog.render = 0;
-    this.perfLog.envStep = 0;
+    this.perfLog.navStep = 0;
     this.perfLog.camera = 0;
     this.perfLog.ui = 0;
   }
@@ -196,46 +167,35 @@ class Simulation {
    * Update simulation state
    */
   update(dt) {
-    const { drone, rlEnvironment, rlAgent } = this.components;
+    const { drone, navEnvironment } = this.components;
     
     let t0, t1;
     
-    // Choose action source:
-    // - If a model is loaded, use RL agent (autopilot)
-    // - Otherwise, use manual keyboard input
-    let action;
-    let modelAction = null;
-    if (this.trainingController.hasLoadedModel && rlAgent) {
-      const currentObs = this.episodeManager.getObservation();
-      if (currentObs) {
-        action = rlAgent.selectAction(currentObs, false);
-        modelAction = action; // Store for UI display
-      } else {
-        // Fallback if observation not initialized yet
-        action = this.inputController.getAction();
-      }
-    } else {
-      action = this.inputController.getAction();
-    }
+    // Get manual input (can override autopilot)
+    const manualAction = this.inputController.getAction();
     
-    // Store model action for UI display
-    this.lastModelAction = modelAction;
-    
-    // Take step in environment
+    // Take step in navigation environment
     t0 = performance.now();
-    const { observation, done, info } = rlEnvironment.step(action, dt);
+    const { observation, done, info } = navEnvironment.step(manualAction, dt);
     t1 = performance.now();
-    this.perfLog.envStep += t1 - t0;
+    this.perfLog.navStep += t1 - t0;
     
     this.episodeManager.setObservation(observation);
     
     // Handle episode end
     if (done) {
+      // On success, regenerate the environment (new forest) before resetting,
+      // which will also generate a fresh target via navEnvironment.reset().
+      if (info && info.success) {
+        this.currentSeed += 1;
+        const { forestGenerator, raycastTargets } =
+          ComponentFactory.regenerateForest(this.components, this.currentSeed);
+        this.components.forestGenerator = forestGenerator;
+        this.components.raycastTargets = raycastTargets;
+      }
+      
       this.episodeManager.handleEnd(info, drone);
     }
-    
-    // Update reward display (every frame for responsiveness)
-    this.updateRewardDisplay(info);
     
     // Keep drone in bounds
     this.boundsEnforcer.enforce(drone);
@@ -268,32 +228,28 @@ class Simulation {
    * Update UI displays
    */
   updateUI() {
-    const { drone, rlEnvironment, ui } = this.components;
+    const { drone, navEnvironment, ui } = this.components;
     
     const state = drone.getState();
-    const distToTarget = rlEnvironment.getDistanceToTarget();
+    const distToTarget = navEnvironment.getDistanceToTarget();
     
     // Drone stats
     ui.updateDroneStats(state.speed, state.y, distToTarget);
     
-    // Update observation display (what the model sees)
-    this.updateObservationDisplay();
-    
-    // Update model action display if model is loaded
-    const hasModel = this.trainingController.hasLoadedModel;
-    ui.updateModelAction(this.lastModelAction, hasModel);
+    // Update navigation display
+    this.updateNavigationDisplay();
   }
   
   /**
-   * Update observation display - shows exactly what the model sees
+   * Update navigation display - shows reactive navigation status
    */
-  updateObservationDisplay() {
-    const { drone, rlEnvironment, ui, lidar } = this.components;
+  updateNavigationDisplay() {
+    const { drone, navEnvironment, ui, lidar } = this.components;
     
     const state = drone.getState();
-    const targetDir = rlEnvironment.getTargetDirection();
-    const distToTarget = rlEnvironment.getDistanceToTarget();
-    const canSeeTarget = rlEnvironment.canSeeTarget();
+    const targetDir = navEnvironment.getTargetDirection();
+    const distToTarget = navEnvironment.getDistanceToTarget();
+    const canSeeTarget = navEnvironment.canSeeTarget();
     
     const obsData = {
       // Target info
@@ -317,30 +273,6 @@ class Simulation {
     };
     
     ui.updateObservationDisplay(obsData);
-  }
-  
-  /**
-   * Update reward display from step info
-   */
-  updateRewardDisplay(info) {
-    const { ui, rlEnvironment } = this.components;
-    
-    if (info && info.rewardBreakdown) {
-      // Calculate total from breakdown
-      let total = 0;
-      for (const key in info.rewardBreakdown) {
-        total += info.rewardBreakdown[key];
-      }
-      
-      ui.updateRewardBreakdown(info.rewardBreakdown, total);
-    }
-    
-    // Update episode stats
-    const stats = rlEnvironment.getStats();
-    ui.updateEpisodeRewardStats(
-      stats.currentEpisodeReward || 0,
-      stats.currentEpisodeSteps || 0
-    );
   }
 }
 

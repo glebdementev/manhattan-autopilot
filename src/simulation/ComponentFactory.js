@@ -1,8 +1,7 @@
 import { ForestGenerator } from '../forest/ForestGenerator.js';
 import { Drone } from '../vehicle/Drone.js';
 import { Lidar } from '../vehicle/Lidar.js';
-import { RLEnvironment } from '../rl/RLEnvironment.js';
-import { RLAgent } from '../rl/RLAgent.js';
+import { NavigationEnvironment } from '../navigation/NavigationEnvironment.js';
 import { SceneManager } from '../scene/SceneManager.js';
 import { UIManager } from '../ui/UIManager.js';
 
@@ -40,19 +39,13 @@ export class ComponentFactory {
       components.sceneManager
     );
     
-    // RL Environment
-    components.rlEnvironment = new RLEnvironment(
+    // Navigation Environment (replaces RLEnvironment)
+    components.navEnvironment = new NavigationEnvironment(
       components.drone,
       components.lidar,
       forestGenerator,
       components.sceneManager
     );
-    
-    // RL Agent
-    const obsInfo = components.rlEnvironment.getObservationSpaceInfo();
-    const actInfo = components.rlEnvironment.getActionSpaceInfo();
-    console.log(`Observation size: ${obsInfo.size}, Action size: ${actInfo.size}`);
-    components.rlAgent = new RLAgent(obsInfo.size, actInfo.size);
     
     // UI
     components.ui = new UIManager();
@@ -76,11 +69,11 @@ export class ComponentFactory {
    * Create manual drone
    */
   static createDrone(forestGenerator, sceneManager) {
-    console.log('Creating manual drone...');
+    console.log('Creating drone...');
     const drone = new Drone();
     drone.setCollisionChecker(forestGenerator);
     drone.setScene(sceneManager.getScene());
-    drone.setMode('manual');
+    drone.setMode('autopilot');
     sceneManager.add(drone.getMesh());
     return drone;
   }
@@ -103,7 +96,7 @@ export class ComponentFactory {
    * Regenerate forest with new seed
    */
   static regenerateForest(components, newSeed) {
-    const { sceneManager, forestGenerator: oldForest, drone, lidar, rlEnvironment } = components;
+    const { sceneManager, forestGenerator: oldForest, drone, lidar, navEnvironment } = components;
     
     // Remove old forest
     if (oldForest) {
@@ -115,7 +108,7 @@ export class ComponentFactory {
     const { forestGenerator, raycastTargets } = this.createForest(newSeed, sceneManager);
     
     // Update references
-    rlEnvironment.setForest(forestGenerator);
+    navEnvironment.setForest(forestGenerator);
     drone.setCollisionChecker(forestGenerator);
     // Update lidar with new obstacles and terrain
     lidar.setObstacles(forestGenerator.getObstacles());

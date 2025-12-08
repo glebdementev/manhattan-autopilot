@@ -1,5 +1,6 @@
 /**
- * LiDAR sensor - 16 horizontal rays + nadir + zenith
+ * LiDAR sensor - Multi-layer 3D scanning
+ * 4 vertical layers × 12 horizontal rays = 48 rays + nadir + zenith = 50 total
  * Uses Three.js Raycaster with BVH acceleration
  */
 import * as THREE from 'three';
@@ -27,14 +28,21 @@ export class Lidar {
     // Targets to raycast against
     this.targets = [];
     
-    // Ray configuration
-    this.numRays = LIDAR.NUM_RAYS;
-    this.nadirIndex = this.numRays;
-    this.zenithIndex = this.numRays + 1;
-    this.totalRays = this.numRays + 2;
+    // Ray configuration - multi-layer
+    this.horizontalRays = LIDAR.HORIZONTAL_RAYS;
+    this.verticalLayers = LIDAR.VERTICAL_LAYERS;
+    this.scanRays = this.horizontalRays * this.verticalLayers;
+    
+    // Special ray indices
+    this.nadirIndex = this.scanRays;
+    this.zenithIndex = this.scanRays + 1;
+    this.totalRays = this.scanRays + 2;
     
     // Pre-calculate local ray directions
     this.localDirections = this.generateRays();
+    
+    // Store layer info for each ray (for getMinDistanceAtLayer)
+    this.rayLayers = this.generateRayLayers();
     
     // Reusable vectors
     this._origin = new THREE.Vector3();
@@ -56,25 +64,66 @@ export class Lidar {
   }
   
   /**
-   * Generate rays in forward cone (±30°)
+   * Generate multi-layer rays
+   * 4 layers at different pitch angles, each with horizontal spread
    */
   generateRays() {
     const directions = [];
-    const n = this.numRays;
-    const halfFov = LIDAR.FOV / 2;
+    const halfHorizFov = LIDAR.FOV / 2;
+    const halfVertFov = LIDAR.VERTICAL_FOV / 2;
     
-    for (let i = 0; i < n; i++) {
-      const angle = -halfFov + (i / (n - 1)) * LIDAR.FOV;
-      directions.push(new THREE.Vector3(Math.sin(angle), 0, -Math.cos(angle)));
+    // Generate vertical layer angles (evenly distributed)
+    const vertAngles = [];
+    for (let v = 0; v < this.verticalLayers; v++) {
+      // From -halfVertFov to +halfVertFov
+      const t = this.verticalLayers > 1 ? v / (this.verticalLayers - 1) : 0.5;
+      vertAngles.push(-halfVertFov + t * LIDAR.VERTICAL_FOV);
     }
     
-    // Nadir ray (downward)
+    // Generate rays for each layer
+    for (let v = 0; v < this.verticalLayers; v++) {
+      const pitch = vertAngles[v];
+      const cosPitch = Math.cos(pitch);
+      const sinPitch = Math.sin(pitch);
+      
+      for (let h = 0; h < this.horizontalRays; h++) {
+        // Horizontal angle (yaw)
+        const t = this.horizontalRays > 1 ? h / (this.horizontalRays - 1) : 0.5;
+        const yawAngle = -halfHorizFov + t * LIDAR.FOV;
+        
+        // Calculate direction
+        // Start with forward direction, apply pitch, then yaw
+        const x = Math.sin(yawAngle) * cosPitch;
+        const y = sinPitch;
+        const z = -Math.cos(yawAngle) * cosPitch;
+        
+        directions.push(new THREE.Vector3(x, y, z).normalize());
+      }
+    }
+    
+    // Nadir ray (straight down)
     directions.push(new THREE.Vector3(0, -1, 0));
     
-    // Zenith ray (upward)
+    // Zenith ray (straight up)
     directions.push(new THREE.Vector3(0, 1, 0));
     
     return directions;
+  }
+  
+  /**
+   * Generate layer index for each ray
+   */
+  generateRayLayers() {
+    const layers = [];
+    for (let v = 0; v < this.verticalLayers; v++) {
+      for (let h = 0; h < this.horizontalRays; h++) {
+        layers.push(v);
+      }
+    }
+    // Nadir and zenith don't belong to layers
+    layers.push(-1);
+    layers.push(-1);
+    return layers;
   }
   
   /**
@@ -104,7 +153,6 @@ export class Lidar {
   
   /**
    * Perform LiDAR scan using Three.js Raycaster
-   * OPTIMIZED: reuses intersects array, uses firstHitOnly + BVH
    */
   scan() {
     const { x, y, z, yaw } = this.drone;
@@ -120,6 +168,7 @@ export class Lidar {
       if (i === this.nadirIndex || i === this.zenithIndex) {
         this._direction.copy(local);
       } else {
+        // Rotate around Y axis by yaw
         this._direction.set(
           local.x * cosYaw - local.z * sinYaw,
           local.y,
@@ -145,20 +194,61 @@ export class Lidar {
   }
   
   /**
+   * Check if path to a specific point is clear
+   * Casts a single ray to the target position
+   */
+  isPathToPointClear(targetX, targetY, targetZ, margin = 0.5) {
+    const { x, y, z } = this.drone;
+    
+    const dx = targetX - x;
+    const dy = targetY - y;
+    const dz = targetZ - z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    
+    if (dist < 0.1) return true;
+    
+    // Cast ray toward target
+    this._origin.set(x, y, z);
+    this._direction.set(dx / dist, dy / dist, dz / dist);
+    
+    this._intersects.length = 0;
+    this.raycaster.set(this._origin, this._direction);
+    this.raycaster.far = dist + margin;
+    this.raycaster.intersectObjects(this.targets, false, this._intersects);
+    this.raycaster.far = LIDAR.MAX_RANGE; // Reset
+    
+    // Path is clear if no hit, or hit is beyond target
+    if (this._intersects.length === 0) return true;
+    return this._intersects[0].distance > dist - margin;
+  }
+  
+  /**
    * Setup visualization
    */
   setupVisualization() {
     const positions = new Float32Array(this.totalRays * 6);
     const colors = new Float32Array(this.totalRays * 6);
     
-    const rayColor = new THREE.Color(LIDAR.RAY_COLOR);
+    const layerColors = [
+      new THREE.Color(0xff6666), // Layer 0 (bottom) - red
+      new THREE.Color(0xffaa44), // Layer 1 - orange
+      new THREE.Color(0x44ff44), // Layer 2 - green
+      new THREE.Color(0x4488ff), // Layer 3 (top) - blue
+    ];
     const nadirColor = new THREE.Color(0x00ffff);  // Cyan for nadir
     const zenithColor = new THREE.Color(0xff00ff); // Magenta for zenith
     
     for (let i = 0; i < this.totalRays; i++) {
-      let color = rayColor;
-      if (i === this.nadirIndex) color = nadirColor;
-      else if (i === this.zenithIndex) color = zenithColor;
+      let color;
+      if (i === this.nadirIndex) {
+        color = nadirColor;
+      } else if (i === this.zenithIndex) {
+        color = zenithColor;
+      } else {
+        const layer = this.rayLayers[i];
+        color = layerColors[layer] || new THREE.Color(LIDAR.RAY_COLOR);
+      }
+      
       const idx = i * 6;
       colors[idx] = colors[idx + 3] = color.r;
       colors[idx + 1] = colors[idx + 4] = color.g;
@@ -177,7 +267,7 @@ export class Lidar {
     this.visualGroup.add(this.rayLines);
     
     // Hit spheres
-    const sphereGeom = new THREE.SphereGeometry(0.2, 6, 4);
+    const sphereGeom = new THREE.SphereGeometry(0.15, 6, 4);
     const sphereMat = new THREE.MeshBasicMaterial({ color: LIDAR.HIT_COLOR });
     this.hitSpheres = new THREE.InstancedMesh(sphereGeom, sphereMat, this.totalRays);
     this.hitSpheres.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -202,7 +292,7 @@ export class Lidar {
       positions[idx + 1] = y;
       positions[idx + 2] = z;
       
-      // Direction (nadir/zenith don't need yaw rotation)
+      // Direction
       let wx, wy, wz;
       if (i === this.nadirIndex || i === this.zenithIndex) {
         wx = local.x; wy = local.y; wz = local.z;
@@ -241,17 +331,65 @@ export class Lidar {
   
   getDistances() { return this.distances; }
   getNadirDistance() { return this.distances[this.nadirIndex]; }
+  getZenithDistance() { return this.distances[this.zenithIndex]; }
   
+  /**
+   * Get minimum distance across all scan rays (excludes nadir/zenith)
+   */
   getMinDistance() {
     let min = LIDAR.MAX_RANGE;
-    for (let i = 0; i < this.numRays; i++) {
+    for (let i = 0; i < this.scanRays; i++) {
       if (this.distances[i] < min) min = this.distances[i];
     }
     return min;
   }
   
+  /**
+   * Get minimum distance for a specific layer
+   * @param {number} layer - Layer index (0 = bottom, 3 = top)
+   */
+  getMinDistanceAtLayer(layer) {
+    let min = LIDAR.MAX_RANGE;
+    const startIdx = layer * this.horizontalRays;
+    const endIdx = startIdx + this.horizontalRays;
+    
+    for (let i = startIdx; i < endIdx; i++) {
+      if (this.distances[i] < min) min = this.distances[i];
+    }
+    return min;
+  }
+  
+  /**
+   * Get minimum distance for upper layers (above horizontal)
+   */
+  getMinDistanceUpper() {
+    // Layers 2 and 3 are above horizontal
+    const upperStart = Math.floor(this.verticalLayers / 2);
+    let min = LIDAR.MAX_RANGE;
+    
+    for (let layer = upperStart; layer < this.verticalLayers; layer++) {
+      const layerMin = this.getMinDistanceAtLayer(layer);
+      if (layerMin < min) min = layerMin;
+    }
+    return min;
+  }
+  
+  /**
+   * Get minimum distance for lower layers (below horizontal)
+   */
+  getMinDistanceLower() {
+    // Layers 0 and 1 are below horizontal
+    const lowerEnd = Math.floor(this.verticalLayers / 2);
+    let min = LIDAR.MAX_RANGE;
+    
+    for (let layer = 0; layer < lowerEnd; layer++) {
+      const layerMin = this.getMinDistanceAtLayer(layer);
+      if (layerMin < min) min = layerMin;
+    }
+    return min;
+  }
+  
   getForwardMinDistance() {
-    // All rays are forward-ish now
     return this.getMinDistance();
   }
   
@@ -266,15 +404,16 @@ export class Lidar {
     this.visualGroup.visible = enabled;
   }
   
-  getNumRays() { return this.numRays; }
+  getNumRays() { return this.scanRays; }
   getTotalRays() { return this.totalRays; }
+  getHorizontalRays() { return this.horizontalRays; }
+  getVerticalLayers() { return this.verticalLayers; }
   
-  // Legacy
-  getNumScanRays() { return this.numRays; }
-  getNumClosestObstacles() { return this.numRays; }
+  // Legacy compatibility
+  getNumScanRays() { return this.scanRays; }
+  getNumClosestObstacles() { return this.scanRays; }
   getClosestObstaclesFlat() { return this.getNormalizedDistances(); }
   getClosestObstacles() { return []; }
-  getZenithDistance() { return this.distances[this.zenithIndex]; }
   getHitPoints() { return []; }
   setTargetPosition() {}
   setTargetVisible() {}
