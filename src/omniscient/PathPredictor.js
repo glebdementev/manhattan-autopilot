@@ -181,45 +181,43 @@ export class PathPredictor {
    * Save model to IndexedDB
    */
   async save(name = 'path-predictor') {
-    if (!this.model) {
-      throw new Error('Model not built. Call build() first.');
-    }
-    
+    this.assertModelReady();
     await this.model.save(`indexeddb://${name}`);
     console.log(`Model saved as '${name}'`);
   }
   
+  /**
+   * Save model to local files (downloads)
+   */
+  async download(name = 'path-predictor') {
+    this.assertModelReady();
+    await this.model.save(`downloads://${name}`);
+    console.log(`Model downloaded as '${name}'`);
+  }
+
   /**
    * Load model from IndexedDB
    */
   async load(name = 'path-predictor') {
     try {
       const loadedModel = await tf.loadLayersModel(`indexeddb://${name}`);
-      
-      // Check input dimension of loaded model against current observationDim.
-      // If it doesn't match (e.g. legacy model with LIDAR inputs), ignore it.
-      const firstLayer = loadedModel.layers[0];
-      const inputShape = firstLayer && firstLayer.batchInputShape
-        ? firstLayer.batchInputShape[1]
-        : null;
-      
-      if (inputShape !== this.observationDim) {
-        console.warn(
-          `PathPredictor.load: ignoring legacy model '${name}' (inputDim=${inputShape}, expected=${this.observationDim}).`
-        );
-        return false;
-      }
-      
-      this.model = loadedModel;
-      this.model.compile({
-        optimizer: tf.train.adam(0.001),
-        loss: 'meanSquaredError',
-        metrics: ['mse'],
-      });
-      console.log(`Model loaded from '${name}'`);
-      return true;
+      return this.applyLoadedModel(loadedModel, name);
     } catch (e) {
       console.warn(`Could not load model '${name}':`, e.message);
+      return false;
+    }
+  }
+
+  /**
+   * Load model from local files (json + weights)
+   */
+  async loadFromFiles(files) {
+    try {
+      const sources = this.normalizeModelFiles(files);
+      const loadedModel = await tf.loadLayersModel(tf.io.browserFiles(sources));
+      return this.applyLoadedModel(loadedModel, sources[0].name);
+    } catch (e) {
+      console.warn('Could not load model from files:', e.message);
       return false;
     }
   }
@@ -281,6 +279,54 @@ export class PathPredictor {
    */
   isReady() {
     return this.model !== null;
+  }
+
+  /**
+   * Shared helpers
+   */
+  getInputDim(model) {
+    const firstLayer = model && model.layers && model.layers[0];
+    return firstLayer && firstLayer.batchInputShape
+      ? firstLayer.batchInputShape[1]
+      : null;
+  }
+
+  applyLoadedModel(model, sourceName) {
+    const inputDim = this.getInputDim(model);
+    if (inputDim !== this.observationDim) {
+      console.warn(
+        `PathPredictor.load: ignoring model '${sourceName}' (inputDim=${inputDim}, expected=${this.observationDim}).`
+      );
+      return false;
+    }
+
+    this.model = model;
+    this.model.compile({
+      optimizer: tf.train.adam(0.001),
+      loss: 'meanSquaredError',
+      metrics: ['mse'],
+    });
+    console.log(`Model loaded from '${sourceName}'`);
+    return true;
+  }
+
+  normalizeModelFiles(files) {
+    const fileList = Array.from(files || []);
+    const jsonFile = fileList.find(f => f.name.toLowerCase().endsWith('.json'));
+    const weightFiles = fileList.filter(f => f !== jsonFile && f.name.toLowerCase().endsWith('.bin'));
+
+    if (!jsonFile || weightFiles.length === 0) {
+      throw new Error('Select the exported model JSON and weight BIN files.');
+    }
+
+    weightFiles.sort((a, b) => a.name.localeCompare(b.name));
+    return [jsonFile, ...weightFiles];
+  }
+
+  assertModelReady() {
+    if (!this.model) {
+      throw new Error('Model not built. Call build() first.');
+    }
   }
 }
 

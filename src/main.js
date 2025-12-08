@@ -103,6 +103,7 @@ class Simulation {
         console.log('Loaded trained model');
         this.createLearnedController();
         this.components.ui.enableSave(true);
+        this.components.ui.enableDownload(true);
         this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
         this.components.ui.setModelReady(true);
       }
@@ -143,7 +144,7 @@ class Simulation {
   }
 
   setupUICallbacks() {
-    const { ui, lidar, sceneManager, pathVisualizer } = this.components;
+    const { ui, lidar, pathVisualizer } = this.components;
     
     // Mode change
     ui.on('modeChange', (mode) => {
@@ -173,7 +174,9 @@ class Simulation {
     ui.on('generateData', (episodes) => this.generateTrainingData(episodes));
     ui.on('trainModel', (epochs) => this.trainModel(epochs));
     ui.on('saveModel', () => this.saveModel());
-    ui.on('loadModel', () => this.loadModel());
+    ui.on('uploadModel', (files) => this.loadModelFromFiles(files));
+    ui.on('downloadModel', () => this.downloadModel());
+    ui.on('lidarConfigChange', (config) => this.updateLidarConfig(config));
     
     // Keyboard
     ui.on('keydown', (key) => this.inputController.handleKeyDown(key));
@@ -239,6 +242,7 @@ class Simulation {
       console.log('Training complete');
       this.createLearnedController();
       ui.enableSave(true);
+      ui.enableDownload(true);
       ui.setModelReady(true);
     } catch (e) {
       console.error('Training failed:', e);
@@ -249,8 +253,13 @@ class Simulation {
   }
 
   async saveModel() {
-    await this.trainingOrchestrator.save();
-    console.log('Model saved');
+    try {
+      await this.trainingOrchestrator.save();
+      await this.trainingOrchestrator.saveToFiles();
+      console.log('Model saved to browser and downloaded');
+    } catch (e) {
+      console.error('Save failed:', e);
+    }
   }
 
   async loadModel() {
@@ -259,9 +268,37 @@ class Simulation {
       console.log('Model loaded');
       this.createLearnedController();
       this.components.ui.enableSave(true);
+      this.components.ui.enableDownload(true);
       this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
       this.components.ui.setModelReady(true);
     }
+  }
+
+  async downloadModel() {
+    try {
+      await this.trainingOrchestrator.saveToFiles();
+      this.components.ui.enableDownload(true);
+    } catch (e) {
+      console.error('Download failed:', e);
+    }
+  }
+
+  async loadModelFromFiles(files) {
+    const loaded = await this.trainingOrchestrator.loadFromFiles(files);
+    if (loaded) {
+      console.log('Model loaded from files');
+      this.createLearnedController();
+      this.components.ui.enableSave(true);
+      this.components.ui.enableDownload(true);
+      this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
+      this.components.ui.setModelReady(true);
+    }
+  }
+
+  updateLidarConfig(config) {
+    const applied = this.components.lidar.updateConfig(config);
+    this.components.ui.setLidarConfig(applied);
+    this.components.lidar.scan();
   }
 
   animate() {

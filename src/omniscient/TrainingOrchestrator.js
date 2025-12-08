@@ -321,10 +321,25 @@ export class TrainingOrchestrator {
   }
   
   /**
+   * Save model to downloadable files
+   */
+  async saveToFiles(modelName = 'path-predictor') {
+    await this.predictor.download(modelName);
+    console.log(`Saved model to files`);
+  }
+
+  /**
    * Load model
    */
   async load(modelName = 'path-predictor') {
     return await this.predictor.load(modelName);
+  }
+
+  /**
+   * Load model from local files
+   */
+  async loadFromFiles(files) {
+    return await this.predictor.loadFromFiles(files);
   }
   
   /**

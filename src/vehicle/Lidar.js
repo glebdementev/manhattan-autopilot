@@ -62,6 +62,34 @@ export class Lidar {
     
     this.setupVisualization();
   }
+
+  /**
+   * Update LiDAR ray layout at runtime
+   * Rebuilds ray directions, buffers, and visualization.
+   */
+  updateConfig({ horizontalRays, verticalLayers }) {
+    const nextHorizontal = this.sanitizeRayCount(horizontalRays, LIDAR.HORIZONTAL_RAYS, 4, 64);
+    const nextVertical = this.sanitizeRayCount(verticalLayers, LIDAR.VERTICAL_LAYERS, 1, 16);
+
+    if (nextHorizontal === this.horizontalRays && nextVertical === this.verticalLayers) {
+      return { horizontalRays: this.horizontalRays, verticalLayers: this.verticalLayers };
+    }
+
+    this.horizontalRays = nextHorizontal;
+    this.verticalLayers = nextVertical;
+    this.scanRays = this.horizontalRays * this.verticalLayers;
+    this.nadirIndex = this.scanRays;
+    this.zenithIndex = this.scanRays + 1;
+    this.totalRays = this.scanRays + 2;
+
+    this.localDirections = this.generateRays();
+    this.rayLayers = this.generateRayLayers();
+    this.distances = new Float32Array(this.totalRays).fill(LIDAR.MAX_RANGE);
+
+    this.rebuildVisualization();
+
+    return { horizontalRays: this.horizontalRays, verticalLayers: this.verticalLayers };
+  }
   
   /**
    * Generate multi-layer rays
@@ -240,6 +268,8 @@ export class Lidar {
    * Setup visualization
    */
   setupVisualization() {
+    this.disposeVisualization();
+
     const positions = new Float32Array(this.totalRays * 6);
     const colors = new Float32Array(this.totalRays * 6);
     
@@ -288,6 +318,27 @@ export class Lidar {
     this.visualGroup.add(this.hitSpheres);
     
     this._matrix = new THREE.Matrix4();
+  }
+
+  disposeVisualization() {
+    if (this.rayLines) {
+      this.visualGroup.remove(this.rayLines);
+      this.rayLines.geometry.dispose();
+      this.rayLines.material.dispose();
+      this.rayLines = null;
+    }
+
+    if (this.hitSpheres) {
+      this.visualGroup.remove(this.hitSpheres);
+      this.hitSpheres.geometry.dispose();
+      this.hitSpheres.material.dispose();
+      this.hitSpheres = null;
+    }
+  }
+
+  rebuildVisualization() {
+    this.setupVisualization();
+    this.visualGroup.visible = this.visualizationEnabled;
   }
   
   /**
@@ -422,6 +473,12 @@ export class Lidar {
   getTotalRays() { return this.totalRays; }
   getHorizontalRays() { return this.horizontalRays; }
   getVerticalLayers() { return this.verticalLayers; }
+
+  sanitizeRayCount(value, fallback, min, max) {
+    const intValue = Math.floor(Number(value));
+    if (!Number.isFinite(intValue)) return fallback;
+    return Math.max(min, Math.min(max, intValue));
+  }
   
   // Legacy compatibility
   getNumScanRays() { return this.scanRays; }

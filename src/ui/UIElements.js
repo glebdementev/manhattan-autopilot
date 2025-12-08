@@ -57,6 +57,21 @@ export function createInfoPanelHTML() {
           Show Path
         </label>
       </div>
+
+      <div class="section">
+        <h3>LiDAR</h3>
+        <div class="lidar-config">
+          <label>
+            Horizontal rays
+            <input type="number" id="lidar-horizontal" min="4" max="64" step="1">
+          </label>
+          <label>
+            Vertical layers
+            <input type="number" id="lidar-vertical" min="1" max="16" step="1">
+          </label>
+          <button id="btn-apply-lidar">Apply</button>
+        </div>
+      </div>
       
       <div class="section" id="model-section">
         <h3>🧠 Model</h3>
@@ -65,7 +80,7 @@ export function createInfoPanelHTML() {
           <span id="model-status">Not loaded</span>
         </div>
         <div class="control-group">
-          <button id="btn-load-model">Load Model</button>
+          <button id="btn-upload-model">Upload Model</button>
           <button id="btn-train-model">Train Model</button>
         </div>
       </div>
@@ -119,11 +134,13 @@ export function createInfoPanelHTML() {
           <button id="btn-generate">Generate Data</button>
           <button id="btn-train" disabled>Train</button>
           <button id="btn-save" disabled>Save Model</button>
+          <button id="btn-download-model" disabled>Download Model</button>
         </div>
         
         <button id="btn-close-modal" class="modal-close">Close</button>
       </div>
     </div>
+    <input type="file" id="model-file-input" accept=".json,.bin" multiple style="display:none">
   `;
 }
 
@@ -149,12 +166,16 @@ export function createUIContainer() {
     // Buttons
     btnNewTarget: document.getElementById('btn-new-target'),
     btnReset: document.getElementById('btn-reset'),
-    btnLoadModel: document.getElementById('btn-load-model'),
     btnTrainModel: document.getElementById('btn-train-model'),
     
     // Toggles
     lidarToggle: document.getElementById('lidar-toggle'),
     pathToggle: document.getElementById('path-toggle'),
+
+    // LiDAR config
+    lidarHorizontal: document.getElementById('lidar-horizontal'),
+    lidarVertical: document.getElementById('lidar-vertical'),
+    btnApplyLidar: document.getElementById('btn-apply-lidar'),
     
     // Modal
     trainingModal: document.getElementById('training-modal'),
@@ -172,5 +193,10 @@ export function createUIContainer() {
     btnGenerate: document.getElementById('btn-generate'),
     btnTrain: document.getElementById('btn-train'),
     btnSave: document.getElementById('btn-save'),
+
+    // Model files
+    btnUploadModel: document.getElementById('btn-upload-model'),
+    btnDownloadModel: document.getElementById('btn-download-model'),
+    modelFileInput: document.getElementById('model-file-input'),
   };
 }

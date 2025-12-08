@@ -6,6 +6,7 @@ import { createUIContainer } from './UIElements.js';
 import { SplashScreens } from './SplashScreens.js';
 import { EventEmitter } from './EventEmitter.js';
 import * as StatsDisplay from './StatsDisplay.js';
+import { LIDAR } from '../config.js';
 
 export class UIManager extends EventEmitter {
   constructor() {
@@ -18,11 +19,19 @@ export class UIManager extends EventEmitter {
     
     this.createUI();
     this.setupEventListeners();
+    this.applyDefaults();
   }
 
   createUI() {
     this.elements = createUIContainer();
     this.splashScreens = new SplashScreens();
+  }
+
+  applyDefaults() {
+    const el = this.elements;
+    if (el.lidarHorizontal) el.lidarHorizontal.value = LIDAR.HORIZONTAL_RAYS;
+    if (el.lidarVertical) el.lidarVertical.value = LIDAR.VERTICAL_LAYERS;
+    if (el.btnDownloadModel) el.btnDownloadModel.disabled = true;
   }
 
   setupEventListeners() {
@@ -49,7 +58,20 @@ export class UIManager extends EventEmitter {
     el.btnReset.addEventListener('click', () => this.emit('reset'));
     
     // Model buttons
-    el.btnLoadModel.addEventListener('click', () => this.emit('loadModel'));
+    el.btnUploadModel.addEventListener('click', () => {
+      if (el.modelFileInput) {
+        el.modelFileInput.click();
+      }
+    });
+    el.modelFileInput.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length) {
+        this.emit('uploadModel', files);
+      }
+      // Allow selecting the same file twice
+      e.target.value = '';
+    });
+    el.btnDownloadModel.addEventListener('click', () => this.emit('downloadModel'));
     el.btnTrainModel.addEventListener('click', () => this.showTrainingModal());
     
     // Toggles
@@ -76,6 +98,21 @@ export class UIManager extends EventEmitter {
     });
     
     el.btnSave.addEventListener('click', () => this.emit('saveModel'));
+
+    // LiDAR configuration
+    el.btnApplyLidar.addEventListener('click', () => {
+      const horizontalRays = parseInt(el.lidarHorizontal.value, 10);
+      const verticalLayers = parseInt(el.lidarVertical.value, 10);
+      
+      if (Number.isNaN(horizontalRays) || Number.isNaN(verticalLayers)) {
+        return;
+      }
+
+      this.emit('lidarConfigChange', {
+        horizontalRays,
+        verticalLayers,
+      });
+    });
     
     // Keyboard
     document.addEventListener('keydown', (e) => {
@@ -138,6 +175,10 @@ export class UIManager extends EventEmitter {
     if (el.modelStatus) {
       el.modelStatus.textContent = ready ? 'Ready' : 'Not loaded';
       el.modelStatus.style.color = ready ? '#60ff90' : 'rgba(180, 200, 220, 0.6)';
+    }
+    
+    if (el.btnDownloadModel) {
+      el.btnDownloadModel.disabled = !ready;
     }
   }
 
@@ -204,5 +245,20 @@ export class UIManager extends EventEmitter {
 
   enableSave(enabled) {
     this.elements.btnSave.disabled = !enabled;
+  }
+
+  enableDownload(enabled) {
+    if (this.elements.btnDownloadModel) {
+      this.elements.btnDownloadModel.disabled = !enabled;
+    }
+  }
+
+  setLidarConfig({ horizontalRays, verticalLayers }) {
+    if (this.elements.lidarHorizontal) {
+      this.elements.lidarHorizontal.value = horizontalRays;
+    }
+    if (this.elements.lidarVertical) {
+      this.elements.lidarVertical.value = verticalLayers;
+    }
   }
 }
