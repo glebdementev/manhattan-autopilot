@@ -14,6 +14,7 @@ export class UIManager extends EventEmitter {
     this.elements = {};
     this.splashScreens = null;
     this.currentMode = 'omniscient';
+    this.modelReady = false;
     
     this.createUI();
     this.setupEventListeners();
@@ -30,6 +31,14 @@ export class UIManager extends EventEmitter {
     // Navigation mode selector
     el.navModeRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
+        if (e.target.value === 'learned' && !this.modelReady) {
+          // Prevent switching to learned mode if model not ready
+          e.preventDefault();
+          el.navModeRadios.forEach(r => {
+            r.checked = r.value === 'omniscient';
+          });
+          return;
+        }
         this.currentMode = e.target.value;
         this.emit('modeChange', this.currentMode);
       });
@@ -38,6 +47,10 @@ export class UIManager extends EventEmitter {
     // Buttons
     el.btnNewTarget.addEventListener('click', () => this.emit('newTarget'));
     el.btnReset.addEventListener('click', () => this.emit('reset'));
+    
+    // Model buttons
+    el.btnLoadModel.addEventListener('click', () => this.emit('loadModel'));
+    el.btnTrainModel.addEventListener('click', () => this.showTrainingModal());
     
     // Toggles
     el.lidarToggle.addEventListener('change', (e) => {
@@ -48,7 +61,10 @@ export class UIManager extends EventEmitter {
       this.emit('pathToggle', e.target.checked);
     });
     
-    // Training buttons
+    // Modal buttons
+    el.btnCloseModal.addEventListener('click', () => this.hideTrainingModal());
+    
+    // Training buttons (in modal)
     el.btnGenerate.addEventListener('click', () => {
       const episodes = parseInt(el.trainEpisodes.value, 10);
       this.emit('generateData', episodes);
@@ -60,16 +76,40 @@ export class UIManager extends EventEmitter {
     });
     
     el.btnSave.addEventListener('click', () => this.emit('saveModel'));
-    el.btnLoad.addEventListener('click', () => this.emit('loadModel'));
     
     // Keyboard
     document.addEventListener('keydown', (e) => {
+      // Don't handle keys when modal is open
+      if (this.isModalOpen()) return;
       this.emit('keydown', e.key.toLowerCase());
     });
     
     document.addEventListener('keyup', (e) => {
+      if (this.isModalOpen()) return;
       this.emit('keyup', e.key.toLowerCase());
     });
+    
+    // Close modal on overlay click
+    el.trainingModal.addEventListener('click', (e) => {
+      if (e.target === el.trainingModal) {
+        this.hideTrainingModal();
+      }
+    });
+  }
+
+  // Modal management
+  isModalOpen() {
+    return this.elements.trainingModal.classList.contains('visible');
+  }
+
+  showTrainingModal() {
+    this.elements.trainingModal.classList.add('visible');
+    this.emit('modalOpen');
+  }
+
+  hideTrainingModal() {
+    this.elements.trainingModal.classList.remove('visible');
+    this.emit('modalClose');
   }
 
   // Mode
@@ -82,6 +122,23 @@ export class UIManager extends EventEmitter {
     this.elements.navModeRadios.forEach(radio => {
       radio.checked = radio.value === mode;
     });
+  }
+
+  // Model ready state
+  setModelReady(ready) {
+    this.modelReady = ready;
+    const el = this.elements;
+    
+    // Enable/disable learned mode radio
+    if (el.learnedModeRadio) {
+      el.learnedModeRadio.disabled = !ready;
+    }
+    
+    // Update model status
+    if (el.modelStatus) {
+      el.modelStatus.textContent = ready ? 'Ready' : 'Not loaded';
+      el.modelStatus.style.color = ready ? '#60ff90' : 'rgba(180, 200, 220, 0.6)';
+    }
   }
 
   // Splash screens
@@ -106,62 +163,17 @@ export class UIManager extends EventEmitter {
     StatsDisplay.updateDroneStats(this.elements, speed, altitude, distToTarget);
   }
 
-  updateNavigationStatus(status, progress) {
+  updateNavigationStatus(status) {
     const el = this.elements;
     if (el.navStatus) {
       el.navStatus.textContent = status;
       el.navStatus.style.color = status.includes('Clear') ? '#4f4' : 
                                   status.includes('Avoiding') ? '#f44' : '#ff4';
     }
-    if (el.navProgress) {
-      el.navProgress.textContent = progress;
-    }
-  }
-
-  updateObservationDisplay(obsData) {
-    const el = this.elements;
-    
-    if (el.obsTargetDist) {
-      el.obsTargetDist.textContent = obsData.distToTarget?.toFixed(1) || '∞';
-    }
-    
-    if (el.obsTargetDir && obsData.targetDir) {
-      const dir = obsData.targetDir;
-      el.obsTargetDir.textContent = `(${dir.x?.toFixed(2) || 0}, ${dir.y?.toFixed(2) || 0}, ${dir.z?.toFixed(2) || 0})`;
-    }
-    
-    if (el.obsTargetVisible) {
-      el.obsTargetVisible.textContent = obsData.canSeeTarget ? 'Yes' : 'No';
-      el.obsTargetVisible.style.color = obsData.canSeeTarget ? '#4f4' : '#f44';
-    }
-    
-    if (el.obsMinObstacle) {
-      const minDist = obsData.minObstacleDist;
-      if (minDist !== undefined && minDist < obsData.maxRange) {
-        el.obsMinObstacle.textContent = minDist.toFixed(1);
-        el.obsMinObstacle.style.color = minDist < 3 ? '#f44' : (minDist < 6 ? '#ff4' : '#4f4');
-      } else {
-        el.obsMinObstacle.textContent = '∞';
-        el.obsMinObstacle.style.color = '#4f4';
-      }
-    }
-    
-    if (el.obsNadir) {
-      const nadir = obsData.nadirDist;
-      el.obsNadir.textContent = nadir < 100 ? nadir.toFixed(1) : '∞';
-    }
-    
-    if (obsData.velocity) {
-      if (el.obsVelForward) el.obsVelForward.textContent = obsData.velocity.vx?.toFixed(1) || '0.0';
-      if (el.obsVelRight) el.obsVelRight.textContent = obsData.velocity.vy?.toFixed(1) || '0.0';
-      if (el.obsVelUp) el.obsVelUp.textContent = obsData.velocity.vz?.toFixed(1) || '0.0';
-    }
   }
 
   updateEpisodeStats(steps) {
-    if (this.elements.episodeStepCount) {
-      this.elements.episodeStepCount.textContent = steps;
-    }
+    // No longer displayed
   }
 
   // Training UI

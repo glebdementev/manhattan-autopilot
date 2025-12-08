@@ -1,14 +1,13 @@
 /**
- * DronePhysics - handles drone movement, collision detection, and physics simulation
+ * DronePhysics - handles drone movement and collision detection
  * 
- * Uses LOCAL velocity setpoint control:
+ * Uses direct velocity control (no inertia):
  * - forward/back velocity in drone's facing direction
  * - up/down velocity in world Y
  * - yaw rate for turning left/right
  */
 import { DRONE } from '../config.js';
 import { MeshCollider } from '../collision/MeshCollider.js';
-import { VelocityController } from './VelocityController.js';
 
 export class DronePhysics {
   constructor() {
@@ -17,17 +16,18 @@ export class DronePhysics {
     this.y = 5;
     this.z = 0;
     
-    // Velocity state (world coordinates)
+    // Current velocity (world coordinates) - for state reporting only
     this.vx = 0;
     this.vy = 0;
     this.vz = 0;
     
     // Facing direction (yaw only)
     this.yaw = 0;
-    this.yawRate = 0; // Current yaw angular velocity
     
-    // Velocity controller (converts local setpoints to world thrust)
-    this.velocityController = new VelocityController();
+    // Target velocity setpoint (LOCAL space)
+    this.targetForward = 0;
+    this.targetVertical = 0;
+    this.targetYawRate = 0;
     
     // Stats
     this.distanceTraveled = 0;
@@ -94,18 +94,13 @@ export class DronePhysics {
    * @param {number} yawInput - Yaw rate normalized [-1, 1] (positive = turn right)
    */
   setVelocitySetpoint(forward, vertical, yawInput) {
-    // Store yaw rate target (will be applied in update)
+    this.targetForward = Math.max(-1, Math.min(1, forward)) * DRONE.MAX_SPEED;
+    this.targetVertical = Math.max(-1, Math.min(1, vertical)) * DRONE.MAX_SPEED;
     this.targetYawRate = Math.max(-1, Math.min(1, yawInput)) * DRONE.MAX_YAW_RATE;
-    
-    // Set local velocity target (forward/back and vertical)
-    this.velocityController.setTargetFromLocalAction(
-      Math.max(-1, Math.min(1, forward)),
-      Math.max(-1, Math.min(1, vertical))
-    );
   }
   
   /**
-   * Update drone physics with local velocity control
+   * Update drone position with direct velocity control (no inertia)
    * @returns {Object} - { moved: boolean, dx, dy, dz } for mesh update
    */
   update(dt) {
@@ -120,7 +115,7 @@ export class DronePhysics {
     // Check terrain collision first
     if (this.getTerrainHeight) {
       const terrainY = this.getTerrainHeight(this.x, this.z);
-      const droneBottom = this.y - DRONE.SIZE * 0.175; // half height
+      const droneBottom = this.y - DRONE.SIZE * 0.175;
       if (droneBottom < terrainY) {
         this.handleCollision('terrain');
         return { moved: false };
@@ -134,59 +129,19 @@ export class DronePhysics {
       return { moved: false };
     }
     
-    // Update yaw (turning)
-    if (this.targetYawRate !== undefined) {
-      // Smooth yaw rate change
-      const yawAccel = DRONE.YAW_ACCELERATION || 8;
-      const yawDiff = this.targetYawRate - this.yawRate;
-      this.yawRate += Math.sign(yawDiff) * Math.min(Math.abs(yawDiff), yawAccel * dt);
-      
-      // Apply yaw drag
-      this.yawRate *= (1 - DRONE.DRAG_COEFFICIENT * dt);
-      
-      // Update yaw angle
-      this.yaw += this.yawRate * dt;
-      
-      // Normalize yaw to [-PI, PI]
-      while (this.yaw > Math.PI) this.yaw -= 2 * Math.PI;
-      while (this.yaw < -Math.PI) this.yaw += 2 * Math.PI;
-    }
+    // Update yaw directly (no inertia)
+    this.yaw += this.targetYawRate * dt;
+    while (this.yaw > Math.PI) this.yaw -= 2 * Math.PI;
+    while (this.yaw < -Math.PI) this.yaw += 2 * Math.PI;
     
-    // Get local velocity from controller
-    const localVel = this.velocityController.getLocalVelocity();
+    // Convert local velocity to world velocity (direct, no acceleration)
+    const cosYaw = Math.cos(this.yaw);
+    const sinYaw = Math.sin(this.yaw);
+    this.vx = this.targetForward * sinYaw;
+    this.vz = this.targetForward * cosYaw;
+    this.vy = this.targetVertical;
     
-    // Get thrust from velocity controller (in local space)
-    const thrust = this.velocityController.computeLocalThrust(this.vx, this.vy, this.vz, this.yaw);
-    
-    // Apply thrust as acceleration (already in world space from computeLocalThrust)
-    const accelX = thrust.thrustX * DRONE.MAX_ACCELERATION;
-    const accelY = thrust.thrustY * DRONE.MAX_ACCELERATION;
-    const accelZ = thrust.thrustZ * DRONE.MAX_ACCELERATION;
-    
-    // Update velocity
-    this.vx += accelX * dt;
-    this.vy += accelY * dt;
-    this.vz += accelZ * dt;
-    
-    // Apply drag
-    const drag = DRONE.DRAG_COEFFICIENT;
-    this.vx *= (1 - drag * dt);
-    this.vy *= (1 - drag * dt);
-    this.vz *= (1 - drag * dt);
-    
-    // Clamp horizontal speed (vx, vz) separately from vertical
-    const horizSpeed = Math.sqrt(this.vx * this.vx + this.vz * this.vz);
-    if (horizSpeed > DRONE.MAX_SPEED) {
-      const scale = DRONE.MAX_SPEED / horizSpeed;
-      this.vx *= scale;
-      this.vz *= scale;
-    }
-    
-    // Clamp vertical speed
-    if (Math.abs(this.vy) > DRONE.MAX_SPEED) {
-      this.vy = Math.sign(this.vy) * DRONE.MAX_SPEED;
-    }
-    
+    // Track max speed
     const currentSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy + this.vz * this.vz);
     if (currentSpeed > this.maxSpeedReached) {
       this.maxSpeedReached = currentSpeed;
@@ -198,11 +153,11 @@ export class DronePhysics {
     const dz = this.vz * dt;
     const moveDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
     
-    // Check new position for terrain collision
     const newX = this.x + dx;
     const newY = this.y + dy;
     const newZ = this.z + dz;
     
+    // Check terrain collision at new position
     if (this.getTerrainHeight) {
       const terrainY = this.getTerrainHeight(newX, newZ);
       const droneBottom = newY - DRONE.SIZE * 0.175;
@@ -352,14 +307,14 @@ export class DronePhysics {
     this.vy = 0;
     this.vz = 0;
     this.yaw = 0;
-    this.yawRate = 0;
+    this.targetForward = 0;
+    this.targetVertical = 0;
     this.targetYawRate = 0;
     this.distanceTraveled = 0;
     this.maxSpeedReached = 0;
     this.lastCollision = false;
     this.lastCollisionType = null;
     this.collisionFrozen = false;
-    this.velocityController.reset();
   }
   
   hadCollision() {

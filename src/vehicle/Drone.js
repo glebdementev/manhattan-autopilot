@@ -1,10 +1,9 @@
 /**
- * Drone - flying vehicle with velocity setpoint control
+ * Drone - flying vehicle with direct velocity control (no inertia)
  * 
  * Control model:
  * - Actions are velocity setpoints [-1, 1] → [-MAX_SPEED, MAX_SPEED]
- * - Internal PD controller handles thrust generation
- * - RL agent doesn't need to learn physics/inertia
+ * - Drone moves directly at target velocity (instant response)
  */
 import { DronePhysics } from './DronePhysics.js';
 import { DroneMesh } from './DroneMesh.js';

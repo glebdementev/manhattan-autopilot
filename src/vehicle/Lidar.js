@@ -9,7 +9,7 @@ import {
   disposeBoundsTree, 
   acceleratedRaycast,
 } from 'three-mesh-bvh';
-import { LIDAR } from '../config.js';
+import { LIDAR, DRONE } from '../config.js';
 
 // Install BVH acceleration on Three.js prototypes
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -159,7 +159,12 @@ export class Lidar {
     const cosYaw = Math.cos(yaw);
     const sinYaw = Math.sin(yaw);
     
-    this._origin.set(x, y, z);
+    // Emit from front of drone (half size forward in local +Z direction)
+    // Forward in local space is +Z, rotated by yaw around Y axis
+    const frontOffset = DRONE.SIZE * 0.5;
+    const originX = x + sinYaw * frontOffset;
+    const originZ = z + cosYaw * frontOffset;
+    this._origin.set(originX, y, originZ);
     
     for (let i = 0; i < this.totalRays; i++) {
       const local = this.localDirections[i];
@@ -169,10 +174,12 @@ export class Lidar {
         this._direction.copy(local);
       } else {
         // Rotate around Y axis by yaw
+        // Standard Y-axis rotation: X' = X*cos - Z*sin, Z' = X*sin + Z*cos
+        // But drone yaw is measured clockwise from +Z, so we use negative yaw
         this._direction.set(
-          local.x * cosYaw - local.z * sinYaw,
+          local.x * cosYaw + local.z * sinYaw,
           local.y,
-          local.x * sinYaw + local.z * cosYaw
+          -local.x * sinYaw + local.z * cosYaw
         );
       }
       
@@ -187,7 +194,7 @@ export class Lidar {
     }
     
     if (this.visualizationEnabled) {
-      this.updateVisualization(x, y, z, cosYaw, sinYaw);
+      this.updateVisualization(originX, y, originZ, cosYaw, sinYaw);
     }
     
     return this.distances;
@@ -198,17 +205,24 @@ export class Lidar {
    * Casts a single ray to the target position
    */
   isPathToPointClear(targetX, targetY, targetZ, margin = 0.5) {
-    const { x, y, z } = this.drone;
+    const { x, y, z, yaw } = this.drone;
     
-    const dx = targetX - x;
+    // Emit from front of drone
+    const frontOffset = DRONE.SIZE * 0.5;
+    const cosYaw = Math.cos(yaw);
+    const sinYaw = Math.sin(yaw);
+    const originX = x + sinYaw * frontOffset;
+    const originZ = z + cosYaw * frontOffset;
+    
+    const dx = targetX - originX;
     const dy = targetY - y;
-    const dz = targetZ - z;
+    const dz = targetZ - originZ;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
     
     if (dist < 0.1) return true;
     
     // Cast ray toward target
-    this._origin.set(x, y, z);
+    this._origin.set(originX, y, originZ);
     this._direction.set(dx / dist, dy / dist, dz / dist);
     
     this._intersects.length = 0;
@@ -297,9 +311,9 @@ export class Lidar {
       if (i === this.nadirIndex || i === this.zenithIndex) {
         wx = local.x; wy = local.y; wz = local.z;
       } else {
-        wx = local.x * cosYaw - local.z * sinYaw;
+        wx = local.x * cosYaw + local.z * sinYaw;
         wy = local.y;
-        wz = local.x * sinYaw + local.z * cosYaw;
+        wz = -local.x * sinYaw + local.z * cosYaw;
       }
       
       // End

@@ -79,6 +79,9 @@ export class NavigationEnvironment {
     // Generate target
     this.generateTarget();
     
+    // Face the target (pro-grade direction)
+    this.drone.lookAt(this.targetX, this.targetZ);
+    
     // Set target for controller
     if (this.controller) {
       this.controller.setTarget(this.targetX, this.targetY, this.targetZ);

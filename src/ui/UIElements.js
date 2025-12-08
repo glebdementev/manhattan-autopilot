@@ -16,17 +16,13 @@ export function createInfoPanelHTML() {
             <span>Omniscient (A*)</span>
           </label>
           <label class="radio-label">
-            <input type="radio" name="nav-mode" value="learned">
+            <input type="radio" name="nav-mode" value="learned" id="learned-mode-radio" disabled>
             <span>Learned Model</span>
           </label>
         </div>
         <div class="stat">
           <span class="label">Status:</span>
           <span id="nav-status">Ready</span>
-        </div>
-        <div class="stat">
-          <span class="label">Path:</span>
-          <span id="nav-progress">-</span>
         </div>
       </div>
       
@@ -66,26 +62,53 @@ export function createInfoPanelHTML() {
         </label>
       </div>
       
-      <div class="section" id="training-section">
-        <h3>🧠 Model Training</h3>
+      <div class="section" id="model-section">
+        <h3>🧠 Model</h3>
         <div class="stat">
-          <span class="label">Samples:</span>
-          <span id="stat-samples">0</span>
+          <span class="label">Status:</span>
+          <span id="model-status">Not loaded</span>
         </div>
-        <div class="stat">
-          <span class="label">Loss:</span>
-          <span id="stat-loss">-</span>
+        <div class="control-group">
+          <button id="btn-load-model">Load Model</button>
+          <button id="btn-train-model">Train Model</button>
         </div>
-        <div class="training-inputs">
-          <label>
-            Episodes:
-            <input type="number" id="train-episodes" value="100" min="10" max="5000">
-          </label>
-          <label>
-            Epochs:
-            <input type="number" id="train-epochs" value="30" min="5" max="200">
-          </label>
+      </div>
+    </div>
+    
+    <div id="help-panel">
+      <p><strong>Manual:</strong> WASD + Q/Z</p>
+      <p><strong>R</strong> - New target</p>
+    </div>
+    
+    <!-- Training Modal -->
+    <div id="training-modal" class="modal-overlay">
+      <div class="modal-content">
+        <h2>🧠 Train New Model</h2>
+        
+        <div class="modal-section">
+          <div class="stat">
+            <span class="label">Samples:</span>
+            <span id="stat-samples">0</span>
+          </div>
+          <div class="stat">
+            <span class="label">Loss:</span>
+            <span id="stat-loss">-</span>
+          </div>
         </div>
+        
+        <div class="modal-section">
+          <div class="training-inputs">
+            <label>
+              Episodes:
+              <input type="number" id="train-episodes" value="100" min="10" max="5000">
+            </label>
+            <label>
+              Epochs:
+              <input type="number" id="train-epochs" value="30" min="5" max="200">
+            </label>
+          </div>
+        </div>
+        
         <div id="training-progress" style="display: none;">
           <div class="progress-label">
             <span id="progress-text">Generating...</span>
@@ -95,76 +118,15 @@ export function createInfoPanelHTML() {
             <div id="progress-bar" class="progress-bar"></div>
           </div>
         </div>
-        <div class="control-group">
+        
+        <div class="modal-actions">
           <button id="btn-generate">Generate Data</button>
           <button id="btn-train" disabled>Train</button>
+          <button id="btn-save" disabled>Save Model</button>
         </div>
-        <div class="control-group">
-          <button id="btn-save" disabled>Save</button>
-          <button id="btn-load">Load</button>
-        </div>
+        
+        <button id="btn-close-modal" class="modal-close">Close</button>
       </div>
-    </div>
-    
-    <div id="reward-panel">
-      <h2>📊 Sensors</h2>
-      
-      <div class="section">
-        <h3>🎯 Target</h3>
-        <div class="stat">
-          <span class="label">Distance:</span>
-          <span id="obs-target-dist">0.0</span> m
-        </div>
-        <div class="stat">
-          <span class="label">Direction:</span>
-          <span id="obs-target-dir" class="obs-value">(0, 0, 0)</span>
-        </div>
-        <div class="stat">
-          <span class="label">Visible:</span>
-          <span id="obs-target-visible" class="obs-value">No</span>
-        </div>
-      </div>
-      
-      <div class="section">
-        <h3>📡 Obstacles</h3>
-        <div class="stat">
-          <span class="label">Min Dist:</span>
-          <span id="obs-min-obstacle" class="obs-value">∞</span> m
-        </div>
-        <div class="stat">
-          <span class="label">Ground:</span>
-          <span id="obs-nadir" class="obs-value">∞</span> m
-        </div>
-      </div>
-      
-      <div class="section">
-        <h3>🚀 Velocity</h3>
-        <div class="stat">
-          <span class="label">X:</span>
-          <span id="obs-vel-forward" class="obs-value">0.0</span>
-        </div>
-        <div class="stat">
-          <span class="label">Y:</span>
-          <span id="obs-vel-right" class="obs-value">0.0</span>
-        </div>
-        <div class="stat">
-          <span class="label">Z:</span>
-          <span id="obs-vel-up" class="obs-value">0.0</span>
-        </div>
-      </div>
-      
-      <div class="section">
-        <h3>📈 Episode</h3>
-        <div class="stat">
-          <span class="label">Steps:</span>
-          <span id="episode-step-count">0</span>
-        </div>
-      </div>
-    </div>
-    
-    <div id="help-panel">
-      <p><strong>Manual:</strong> WASD + Q/Z</p>
-      <p><strong>R</strong> - New target</p>
     </div>
   `;
 }
@@ -178,6 +140,7 @@ export function createUIContainer() {
   return {
     // Mode selector
     navModeRadios: document.querySelectorAll('input[name="nav-mode"]'),
+    learnedModeRadio: document.getElementById('learned-mode-radio'),
     
     // Drone stats
     speedValue: document.getElementById('speed-value'),
@@ -186,17 +149,25 @@ export function createUIContainer() {
     
     // Navigation
     navStatus: document.getElementById('nav-status'),
-    navProgress: document.getElementById('nav-progress'),
+    
+    // Model status
+    modelStatus: document.getElementById('model-status'),
     
     // Buttons
     btnNewTarget: document.getElementById('btn-new-target'),
     btnReset: document.getElementById('btn-reset'),
+    btnLoadModel: document.getElementById('btn-load-model'),
+    btnTrainModel: document.getElementById('btn-train-model'),
     
     // Toggles
     lidarToggle: document.getElementById('lidar-toggle'),
     pathToggle: document.getElementById('path-toggle'),
     
-    // Training
+    // Modal
+    trainingModal: document.getElementById('training-modal'),
+    btnCloseModal: document.getElementById('btn-close-modal'),
+    
+    // Training (in modal)
     trainEpisodes: document.getElementById('train-episodes'),
     trainEpochs: document.getElementById('train-epochs'),
     statSamples: document.getElementById('stat-samples'),
@@ -208,19 +179,5 @@ export function createUIContainer() {
     btnGenerate: document.getElementById('btn-generate'),
     btnTrain: document.getElementById('btn-train'),
     btnSave: document.getElementById('btn-save'),
-    btnLoad: document.getElementById('btn-load'),
-    
-    // Observation display
-    obsTargetDist: document.getElementById('obs-target-dist'),
-    obsTargetDir: document.getElementById('obs-target-dir'),
-    obsTargetVisible: document.getElementById('obs-target-visible'),
-    obsMinObstacle: document.getElementById('obs-min-obstacle'),
-    obsNadir: document.getElementById('obs-nadir'),
-    obsVelForward: document.getElementById('obs-vel-forward'),
-    obsVelRight: document.getElementById('obs-vel-right'),
-    obsVelUp: document.getElementById('obs-vel-up'),
-    
-    // Episode
-    episodeStepCount: document.getElementById('episode-step-count'),
   };
 }

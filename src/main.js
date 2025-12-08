@@ -11,7 +11,6 @@ import {
   EpisodeManager,
   ComponentFactory
 } from './simulation/index.js';
-import { LIDAR } from './config.js';
 import {
   OmniscientPathGenerator,
   OmniscientController,
@@ -101,6 +100,7 @@ class Simulation {
         this.createLearnedController();
         this.components.ui.enableSave(true);
         this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
+        this.components.ui.setModelReady(true);
       }
     });
   }
@@ -158,6 +158,10 @@ class Simulation {
       }
     });
     
+    // Modal open/close - pause/resume game
+    ui.on('modalOpen', () => this.pauseGame());
+    ui.on('modalClose', () => this.resumeGame());
+    
     // Training
     ui.on('generateData', (episodes) => this.generateTrainingData(episodes));
     ui.on('trainModel', (epochs) => this.trainModel(epochs));
@@ -169,13 +173,22 @@ class Simulation {
     ui.on('keyup', (key) => this.inputController.handleKeyUp(key));
   }
 
+  pauseGame() {
+    this.isRunning = false;
+  }
+
+  resumeGame() {
+    if (!this.isRunning) {
+      this.isRunning = true;
+      this.lastTime = performance.now();
+      this.animate();
+    }
+  }
+
   async generateTrainingData(numEpisodes) {
     const { ui } = this.components;
     
     ui.setGenerating(true);
-    
-    const wasRunning = this.isRunning;
-    this.isRunning = false;
     
     this.trainingOrchestrator.onProgress = (progress) => {
       ui.showProgress(
@@ -195,12 +208,6 @@ class Simulation {
     
     ui.hideProgress();
     ui.setGenerating(false);
-    
-    if (wasRunning) {
-      this.isRunning = true;
-      this.lastTime = performance.now();
-      this.animate();
-    }
   }
 
   async trainModel(epochs) {
@@ -225,6 +232,7 @@ class Simulation {
       console.log('Training complete');
       this.createLearnedController();
       ui.enableSave(true);
+      ui.setModelReady(true);
     } catch (e) {
       console.error('Training failed:', e);
     }
@@ -245,6 +253,7 @@ class Simulation {
       this.createLearnedController();
       this.components.ui.enableSave(true);
       this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
+      this.components.ui.setModelReady(true);
     }
   }
 
@@ -338,30 +347,7 @@ class Simulation {
     if (minDist < 3) status = 'Avoiding obstacle';
     else if (minDist < 6) status = 'Obstacle nearby';
     
-    let progress = `${distToTarget.toFixed(1)}m`;
-    if (this.navigationMode === 'omniscient' && this.omniscientController) {
-      const path = this.omniscientController.getPath();
-      const idx = this.omniscientController.getCurrentWaypointIndex();
-      if (path) {
-        progress = `WP ${idx + 1}/${path.length}`;
-      }
-    }
-    
-    ui.updateNavigationStatus(status, progress);
-    
-    // Observation display
-    const targetDir = navEnvironment.getTargetDirection();
-    const canSeeTarget = navEnvironment.canSeeTarget();
-    
-    ui.updateObservationDisplay({
-      distToTarget,
-      targetDir,
-      canSeeTarget,
-      minObstacleDist: minDist,
-      maxRange: LIDAR.MAX_RANGE,
-      nadirDist: lidar.getNadirDistance(),
-      velocity: { vx: state.vx || 0, vy: state.vy || 0, vz: state.vz || 0 },
-    });
+    ui.updateNavigationStatus(status);
   }
 }
 
