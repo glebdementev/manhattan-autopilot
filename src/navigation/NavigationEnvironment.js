@@ -1,9 +1,8 @@
 /**
- * NavigationEnvironment - Manages drone navigation with reactive obstacle avoidance
- * Uses LIDAR-based reactive controller for realistic sensor-derived navigation
+ * NavigationEnvironment - Manages drone navigation
+ * Supports two modes: Omniscient (A*) and Learned Model
  */
 import { TARGET } from '../config.js';
-import { ReactiveController } from '../pathfinding/index.js';
 
 const FIXED_SPAWN_HEIGHT = 1.5;
 const FIXED_TARGET_HEIGHT = 1.0;
@@ -15,8 +14,8 @@ export class NavigationEnvironment {
     this.forest = forestGenerator;
     this.sceneManager = sceneManager;
     
-    // Reactive controller (uses LIDAR, not omniscient pathfinding)
-    this.controller = new ReactiveController(drone, lidar);
+    // Controller (set externally - either OmniscientController or LearnedController)
+    this.controller = null;
     
     // Target state
     this.targetX = 0;
@@ -31,6 +30,18 @@ export class NavigationEnvironment {
   }
   
   /**
+   * Set the navigation controller
+   */
+  setController(controller) {
+    this.controller = controller;
+    
+    // If we have a target, set it on the new controller
+    if (this.controller) {
+      this.controller.setTarget(this.targetX, this.targetY, this.targetZ);
+    }
+  }
+  
+  /**
    * Set forest reference (for scene regeneration)
    */
   setForest(forest) {
@@ -41,7 +52,7 @@ export class NavigationEnvironment {
   }
   
   /**
-   * Set seed for target generation randomization
+   * Set seed for target generation
    */
   setSeed(seed) {
     this.targetSeed = seed;
@@ -52,7 +63,6 @@ export class NavigationEnvironment {
    */
   reset() {
     this.drone.reset();
-    this.controller.clearTarget();
     this.episodeSteps = 0;
     
     // Spawn position
@@ -70,7 +80,9 @@ export class NavigationEnvironment {
     this.generateTarget();
     
     // Set target for controller
-    this.controller.setTarget(this.targetX, this.targetY, this.targetZ);
+    if (this.controller) {
+      this.controller.setTarget(this.targetX, this.targetY, this.targetZ);
+    }
     
     // Update lidar
     this.lidar.setTargetPosition(this.targetX, this.targetY, this.targetZ);
@@ -83,10 +95,7 @@ export class NavigationEnvironment {
   /**
    * Generate a new target position
    */
-  generateTarget(
-    minDist = TARGET.MIN_DISTANCE,
-    maxDist = TARGET.MAX_DISTANCE
-  ) {
+  generateTarget(minDist = TARGET.MIN_DISTANCE, maxDist = TARGET.MAX_DISTANCE) {
     const state = this.drone.getState();
     const target = this.forest.generateTargetPosition(
       state.x, state.z,
@@ -100,7 +109,9 @@ export class NavigationEnvironment {
     this.targetZ = target.z;
     
     // Update controller target
-    this.controller.setTarget(this.targetX, this.targetY, this.targetZ);
+    if (this.controller) {
+      this.controller.setTarget(this.targetX, this.targetY, this.targetZ);
+    }
     
     // Update scene marker
     if (this.sceneManager) {
@@ -110,33 +121,28 @@ export class NavigationEnvironment {
   
   /**
    * Take a step in the environment
-   * @param {Array} manualAction - Optional manual override [vx, vy, vz]
-   * @param {number} dt - Delta time
    */
   step(manualAction, dt) {
     this.episodeSteps++;
     
-    // Get action from reactive controller or manual input
-    let action;
-    if (manualAction && (manualAction[0] !== 0 || manualAction[1] !== 0 || manualAction[2] !== 0)) {
-      // Manual input overrides autopilot
+    // Determine action
+    let action = [0, 0, 0];
+    
+    const hasManualInput = manualAction && 
+      (manualAction[0] !== 0 || manualAction[1] !== 0 || manualAction[2] !== 0);
+    
+    if (hasManualInput) {
       action = manualAction;
-    } else if (this.controller.hasActiveTarget()) {
-      // Reactive navigation toward target
+    } else if (this.controller && this.controller.hasActiveTarget()) {
       action = this.controller.update();
-    } else {
-      // No target, hover in place
-      action = [0, 0, 0];
     }
     
-    // Apply velocity setpoint
+    // Apply velocity
     const vx = Math.max(-1, Math.min(1, action[0]));
     const vy = Math.max(-1, Math.min(1, action[1]));
     const vz = Math.max(-1, Math.min(1, action[2]));
     
     this.drone.setControls(vx, vy, vz);
-    
-    // Update physics
     this.drone.update(dt);
     
     // Update lidar
@@ -147,10 +153,7 @@ export class NavigationEnvironment {
     // Check termination
     const { done, info } = this.checkTermination();
     
-    // Get observation
-    const observation = this.getObservation();
-    
-    return { observation, done, info };
+    return { observation: this.getObservation(), done, info };
   }
   
   /**
@@ -160,74 +163,43 @@ export class NavigationEnvironment {
     const dist = this.getDistanceToTarget();
     const hadCollision = this.drone.hadCollision();
     
-    // Success: reached target
     if (dist < this.targetRadius) {
       this.totalEpisodes++;
       this.successfulEpisodes++;
       return {
         done: true,
-        info: {
-          success: true,
-          reason: 'target_reached',
-          distance: dist,
-        },
+        info: { success: true, reason: 'target_reached', distance: dist },
       };
     }
     
-    // Failure: collision
     if (hadCollision) {
       this.totalEpisodes++;
       return {
         done: true,
-        info: {
-          success: false,
-          reason: 'collision',
-          collisionType: this.drone.getLastCollisionType(),
-        },
+        info: { success: false, reason: 'collision', collisionType: this.drone.getLastCollisionType() },
       };
     }
     
-    // Timeout
     if (this.episodeSteps > 2000) {
       this.totalEpisodes++;
       return {
         done: true,
-        info: {
-          success: false,
-          reason: 'timeout',
-        },
+        info: { success: false, reason: 'timeout' },
       };
     }
     
-    return {
-      done: false,
-      info: {
-        distance: dist,
-      },
-    };
+    return { done: false, info: { distance: dist } };
   }
   
-  /**
-   * Get current observation (simplified, for UI display)
-   */
   getObservation() {
     const state = this.drone.getState();
     return {
-      x: state.x,
-      y: state.y,
-      z: state.z,
-      vx: state.vx,
-      vy: state.vy,
-      vz: state.vz,
-      targetX: this.targetX,
-      targetY: this.targetY,
-      targetZ: this.targetZ,
+      x: state.x, y: state.y, z: state.z,
+      vx: state.vx, vy: state.vy, vz: state.vz,
+      targetX: this.targetX, targetY: this.targetY, targetZ: this.targetZ,
     };
   }
   
-  /**
-   * Get distance to target
-   */
   getDistanceToTarget() {
     const state = this.drone.getState();
     const dx = this.targetX - state.x;
@@ -236,49 +208,27 @@ export class NavigationEnvironment {
     return Math.sqrt(dx * dx + dy * dy + dz * dz);
   }
   
-  /**
-   * Check if drone can see target
-   */
   canSeeTarget() {
     const dist = this.getDistanceToTarget();
     if (dist < 3) return true;
-    return this.lidar.getForwardMinDistance() > dist * 0.8;
+    return this.lidar.isPathToPointClear(this.targetX, this.targetY, this.targetZ, 0.5);
   }
   
-  /**
-   * Get direction to target in world coordinates (normalized)
-   */
   getTargetDirection() {
     const state = this.drone.getState();
-    
     const dx = this.targetX - state.x;
     const dy = this.targetY - state.y;
     const dz = this.targetZ - state.z;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
     
     if (dist < 0.001) return { x: 0, y: 0, z: 1 };
-    
-    return {
-      x: dx / dist,
-      y: dy / dist,
-      z: dz / dist,
-    };
+    return { x: dx / dist, y: dy / dist, z: dz / dist };
   }
   
-  /**
-   * Get target position
-   */
   getTarget() {
-    return {
-      x: this.targetX,
-      y: this.targetY,
-      z: this.targetZ,
-    };
+    return { x: this.targetX, y: this.targetY, z: this.targetZ };
   }
   
-  /**
-   * Get statistics
-   */
   getStats() {
     return {
       currentEpisodeSteps: this.episodeSteps,

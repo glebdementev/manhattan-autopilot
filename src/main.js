@@ -1,8 +1,9 @@
 /**
- * Main entry point - Drone Navigation with Reactive Obstacle Avoidance
+ * Main entry point - Drone Navigation
  * 
- * The drone uses LIDAR-based reactive navigation to reach targets
- * while avoiding obstacles in the forest.
+ * Two navigation modes:
+ * 1. Omniscient (A*) - Perfect pathfinding with full environment knowledge
+ * 2. Learned Model - Neural network trained on omniscient paths
  */
 import {
   InputController,
@@ -11,10 +12,15 @@ import {
   ComponentFactory
 } from './simulation/index.js';
 import { LIDAR } from './config.js';
+import {
+  OmniscientPathGenerator,
+  OmniscientController,
+  LearnedController,
+  TrainingOrchestrator
+} from './omniscient/index.js';
 
 class Simulation {
   constructor() {
-    // Components (initialized in init())
     this.components = null;
     
     // Controllers
@@ -22,261 +28,343 @@ class Simulation {
     this.boundsEnforcer = null;
     this.episodeManager = null;
     
+    // Navigation controllers
+    this.pathGenerator = null;
+    this.omniscientController = null;
+    this.learnedController = null;
+    this.trainingOrchestrator = null;
+    
+    // Current mode: 'omniscient' or 'learned'
+    this.navigationMode = 'omniscient';
+    
     // State
     this.isRunning = false;
     this.lastTime = 0;
     this.currentSeed = 42;
-    
-    // Performance
     this.frameCounter = 0;
     this.uiUpdateInterval = 30;
-    
-    // Performance logging
-    this.perfLog = {
-      update: 0,
-      render: 0,
-      navStep: 0,
-      camera: 0,
-      ui: 0,
-    };
-    this.perfLogInterval = 60;
   }
 
-  /**
-   * Initialize the simulation
-   */
   async init() {
-    console.log('Initializing Drone Navigator with Pathfinding...');
+    console.log('Initializing Drone Navigator...');
     
-    // Create all components
     const container = document.getElementById('canvas-container');
     this.components = ComponentFactory.create(container, this.currentSeed);
     
-    // Create controllers
     this.setupControllers();
+    this.setupNavigation();
     this.setupUICallbacks();
     
-    // Set collision callback
     this.components.drone.setOnCollision((type) => {
-      console.log(`Collision detected: ${type}`);
+      console.log(`Collision: ${type}`);
     });
     
-    // Reset environment for first episode
+    // Start with omniscient mode
+    this.setNavigationMode('omniscient');
     this.episodeManager.reset();
     
-    // Start simulation
     this.isRunning = true;
     this.lastTime = performance.now();
     this.animate();
     
-    console.log('Simulation initialized!');
-    console.log('Drone will navigate reactively using LIDAR. Use WASD/QZ for manual override.');
+    console.log('Ready! Use left panel to switch between Omniscient and Learned modes.');
   }
 
-  /**
-   * Setup controllers
-   */
   setupControllers() {
     const { drone, navEnvironment, forestGenerator, ui } = this.components;
     
-    // Input controller
     this.inputController = new InputController();
     this.inputController.setOnReset(() => this.episodeManager.reset());
     
-    // Bounds enforcer
     this.boundsEnforcer = new BoundsEnforcer(forestGenerator);
-    
-    // Episode manager
     this.episodeManager = new EpisodeManager(navEnvironment, ui);
   }
 
-  /**
-   * Setup UI event callbacks
-   */
-  setupUICallbacks() {
-    const { ui, lidar } = this.components;
+  setupNavigation() {
+    const { drone, lidar, forestGenerator, sceneManager } = this.components;
     
+    // Create path generator
+    this.pathGenerator = new OmniscientPathGenerator(forestGenerator);
+    
+    // Create omniscient controller
+    this.omniscientController = new OmniscientController(drone, this.pathGenerator);
+    
+    // Create training orchestrator (includes learned controller)
+    this.trainingOrchestrator = new TrainingOrchestrator(
+      drone, lidar, forestGenerator, sceneManager
+    );
+    
+    // Try to load existing model
+    this.trainingOrchestrator.load().then(loaded => {
+      if (loaded) {
+        console.log('Loaded trained model');
+        this.createLearnedController();
+        this.components.ui.enableSave(true);
+        this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
+      }
+    });
+  }
+
+  createLearnedController() {
+    const { drone, lidar } = this.components;
+    const predictor = this.trainingOrchestrator.getPredictor();
+    
+    if (predictor.isReady()) {
+      this.learnedController = new LearnedController(drone, lidar, predictor);
+    }
+  }
+
+  setNavigationMode(mode) {
+    this.navigationMode = mode;
+    const { navEnvironment } = this.components;
+    
+    if (mode === 'omniscient') {
+      navEnvironment.setController(this.omniscientController);
+      console.log('Mode: Omniscient (A*)');
+    } else if (mode === 'learned' && this.learnedController) {
+      navEnvironment.setController(this.learnedController);
+      console.log('Mode: Learned Model');
+    } else {
+      console.warn('Learned model not ready, staying in omniscient mode');
+      this.navigationMode = 'omniscient';
+      navEnvironment.setController(this.omniscientController);
+      this.components.ui.setMode('omniscient');
+    }
+
+    // Keep path visualization in sync with active mode
+    this.updatePathVisualization();
+  }
+
+  setupUICallbacks() {
+    const { ui, lidar, sceneManager, pathVisualizer } = this.components;
+    
+    // Mode change
+    ui.on('modeChange', (mode) => {
+      this.setNavigationMode(mode);
+      this.episodeManager.reset();
+    });
+    
+    // Navigation
     ui.on('newTarget', () => this.episodeManager.reset());
     ui.on('reset', () => this.episodeManager.reset());
     
-    ui.on('lidarToggle', (enabled) => {
-      lidar.setVisualizationEnabled(enabled);
+    // Display toggles
+    ui.on('lidarToggle', (enabled) => lidar.setVisualizationEnabled(enabled));
+    ui.on('pathToggle', (enabled) => {
+      if (pathVisualizer) {
+        pathVisualizer.setEnabled(enabled);
+        // Immediately reflect current path state
+        this.updatePathVisualization();
+      }
     });
     
-    // Keyboard input
+    // Training
+    ui.on('generateData', (episodes) => this.generateTrainingData(episodes));
+    ui.on('trainModel', (epochs) => this.trainModel(epochs));
+    ui.on('saveModel', () => this.saveModel());
+    ui.on('loadModel', () => this.loadModel());
+    
+    // Keyboard
     ui.on('keydown', (key) => this.inputController.handleKeyDown(key));
     ui.on('keyup', (key) => this.inputController.handleKeyUp(key));
   }
 
-  /**
-   * Main animation loop
-   */
+  async generateTrainingData(numEpisodes) {
+    const { ui } = this.components;
+    
+    ui.setGenerating(true);
+    
+    const wasRunning = this.isRunning;
+    this.isRunning = false;
+    
+    this.trainingOrchestrator.onProgress = (progress) => {
+      ui.showProgress(
+        `Generating paths (${progress.stats.successfulPaths}/${progress.episode})`,
+        progress.progress
+      );
+      ui.updateTrainingStats(progress.stats);
+    };
+    
+    try {
+      const stats = await this.trainingOrchestrator.generateTrainingData(numEpisodes);
+      console.log(`Generated ${stats.totalSamples} samples`);
+      ui.enableTrain(stats.totalSamples > 0);
+    } catch (e) {
+      console.error('Generation failed:', e);
+    }
+    
+    ui.hideProgress();
+    ui.setGenerating(false);
+    
+    if (wasRunning) {
+      this.isRunning = true;
+      this.lastTime = performance.now();
+      this.animate();
+    }
+  }
+
+  async trainModel(epochs) {
+    const { ui } = this.components;
+    
+    ui.setTraining(true);
+    
+    try {
+      await this.trainingOrchestrator.trainModel({
+        epochs,
+        batchSize: 64,
+        validationSplit: 0.1,
+        onEpochEnd: (epoch, logs) => {
+          ui.showProgress(`Training epoch ${epoch + 1}/${epochs}`, (epoch + 1) / epochs);
+          ui.updateTrainingStats({
+            ...this.trainingOrchestrator.getStats(),
+            trainingLoss: logs.loss,
+          });
+        },
+      });
+      
+      console.log('Training complete');
+      this.createLearnedController();
+      ui.enableSave(true);
+    } catch (e) {
+      console.error('Training failed:', e);
+    }
+    
+    ui.hideProgress();
+    ui.setTraining(false);
+  }
+
+  async saveModel() {
+    await this.trainingOrchestrator.save();
+    console.log('Model saved');
+  }
+
+  async loadModel() {
+    const loaded = await this.trainingOrchestrator.load();
+    if (loaded) {
+      console.log('Model loaded');
+      this.createLearnedController();
+      this.components.ui.enableSave(true);
+      this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
+    }
+  }
+
   animate() {
     if (!this.isRunning) return;
     
     requestAnimationFrame(() => this.animate());
     
-    // Calculate delta time
     const currentTime = performance.now();
     const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1);
     this.lastTime = currentTime;
     
     this.frameCounter++;
     
-    let t0, t1;
-    
     if (!this.episodeManager.isInRegeneration()) {
-      t0 = performance.now();
       this.update(deltaTime);
-      t1 = performance.now();
-      this.perfLog.update += t1 - t0;
     }
     
-    t0 = performance.now();
     this.components.sceneManager.render();
-    t1 = performance.now();
-    this.perfLog.render += t1 - t0;
-    
-    // Log performance periodically
-    if (this.frameCounter % this.perfLogInterval === 0) {
-      this.logPerformance();
-    }
-  }
-  
-  /**
-   * Log performance metrics
-   */
-  logPerformance() {
-    const n = this.perfLogInterval;
-    console.log(`[PERF] Avg over ${n} frames:`,
-      `update=${(this.perfLog.update / n).toFixed(2)}ms`,
-      `(nav=${(this.perfLog.navStep / n).toFixed(2)}ms`,
-      `cam=${(this.perfLog.camera / n).toFixed(2)}ms`,
-      `ui=${(this.perfLog.ui / n).toFixed(2)}ms)`,
-      `render=${(this.perfLog.render / n).toFixed(2)}ms`
-    );
-    // Reset counters
-    this.perfLog.update = 0;
-    this.perfLog.render = 0;
-    this.perfLog.navStep = 0;
-    this.perfLog.camera = 0;
-    this.perfLog.ui = 0;
   }
 
-  /**
-   * Update simulation state
-   */
   update(dt) {
     const { drone, navEnvironment } = this.components;
     
-    let t0, t1;
-    
-    // Get manual input (can override autopilot)
     const manualAction = this.inputController.getAction();
-    
-    // Take step in navigation environment
-    t0 = performance.now();
     const { observation, done, info } = navEnvironment.step(manualAction, dt);
-    t1 = performance.now();
-    this.perfLog.navStep += t1 - t0;
+
+    // Update omniscient path visualization (if enabled)
+    this.updatePathVisualization();
     
     this.episodeManager.setObservation(observation);
     
-    // Handle episode end
     if (done) {
-      // On success, regenerate the environment (new forest) before resetting,
-      // which will also generate a fresh target via navEnvironment.reset().
       if (info && info.success) {
         this.currentSeed += 1;
         const { forestGenerator, raycastTargets } =
           ComponentFactory.regenerateForest(this.components, this.currentSeed);
         this.components.forestGenerator = forestGenerator;
         this.components.raycastTargets = raycastTargets;
+        
+        // Update path generator and training orchestrator
+        this.pathGenerator = new OmniscientPathGenerator(forestGenerator);
+        this.omniscientController = new OmniscientController(drone, this.pathGenerator);
+        this.trainingOrchestrator.setForest(forestGenerator);
+        
+        // Re-set controller
+        this.setNavigationMode(this.navigationMode);
       }
       
       this.episodeManager.handleEnd(info, drone);
     }
     
-    // Keep drone in bounds
     this.boundsEnforcer.enforce(drone);
-    
-    // Update camera
-    t0 = performance.now();
     this.updateCamera();
-    t1 = performance.now();
-    this.perfLog.camera += t1 - t0;
     
-    // Update UI periodically
     if (this.frameCounter % this.uiUpdateInterval === 0) {
-      t0 = performance.now();
       this.updateUI();
-      t1 = performance.now();
-      this.perfLog.ui += t1 - t0;
     }
   }
 
-  /**
-   * Update camera to follow drone
-   */
+  updatePathVisualization() {
+    const { pathVisualizer } = this.components;
+    if (!pathVisualizer) return;
+
+    if (this.navigationMode === 'omniscient' && this.omniscientController) {
+      const path = this.omniscientController.getPath();
+      pathVisualizer.updatePath(path);
+    } else {
+      // Hide path when not in omniscient mode
+      pathVisualizer.updatePath(null);
+    }
+  }
+
   updateCamera() {
     const { drone, sceneManager } = this.components;
     const state = drone.getState();
     sceneManager.followTarget(state.x, state.y, state.z, state.yaw, 'chase');
   }
 
-  /**
-   * Update UI displays
-   */
   updateUI() {
-    const { drone, navEnvironment, ui } = this.components;
-    
-    const state = drone.getState();
-    const distToTarget = navEnvironment.getDistanceToTarget();
-    
-    // Drone stats
-    ui.updateDroneStats(state.speed, state.y, distToTarget);
-    
-    // Update navigation display
-    this.updateNavigationDisplay();
-  }
-  
-  /**
-   * Update navigation display - shows reactive navigation status
-   */
-  updateNavigationDisplay() {
     const { drone, navEnvironment, ui, lidar } = this.components;
     
     const state = drone.getState();
-    const targetDir = navEnvironment.getTargetDirection();
     const distToTarget = navEnvironment.getDistanceToTarget();
+    
+    ui.updateDroneStats(state.speed, state.y, distToTarget);
+    
+    // Navigation status
+    const minDist = lidar.getMinDistance();
+    let status = 'Clear path';
+    if (minDist < 3) status = 'Avoiding obstacle';
+    else if (minDist < 6) status = 'Obstacle nearby';
+    
+    let progress = `${distToTarget.toFixed(1)}m`;
+    if (this.navigationMode === 'omniscient' && this.omniscientController) {
+      const path = this.omniscientController.getPath();
+      const idx = this.omniscientController.getCurrentWaypointIndex();
+      if (path) {
+        progress = `WP ${idx + 1}/${path.length}`;
+      }
+    }
+    
+    ui.updateNavigationStatus(status, progress);
+    
+    // Observation display
+    const targetDir = navEnvironment.getTargetDirection();
     const canSeeTarget = navEnvironment.canSeeTarget();
     
-    const obsData = {
-      // Target info
+    ui.updateObservationDisplay({
       distToTarget,
       targetDir,
       canSeeTarget,
-      
-      // Lidar
-      minObstacleDist: lidar.getMinDistance(),
+      minObstacleDist: minDist,
       maxRange: LIDAR.MAX_RANGE,
-      
-      // Vertical sensors
       nadirDist: lidar.getNadirDistance(),
-      
-      // World velocity (normalized)
-      velocity: {
-        vx: state.vx || 0,
-        vy: state.vy || 0,
-        vz: state.vz || 0,
-      },
-    };
-    
-    ui.updateObservationDisplay(obsData);
+      velocity: { vx: state.vx || 0, vy: state.vy || 0, vz: state.vz || 0 },
+    });
   }
 }
 
-// Initialize on load
 window.addEventListener('DOMContentLoaded', async () => {
   const sim = new Simulation();
   await sim.init();

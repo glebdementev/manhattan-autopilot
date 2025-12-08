@@ -1,9 +1,7 @@
 /**
- * UI Manager - Main coordinator for all user interface elements
- * 
- * Handles drone navigation UI with reactive navigation status display
+ * UIManager - Coordinates all UI elements
+ * Supports two navigation modes: Omniscient and Learned Model
  */
-
 import { createUIContainer } from './UIElements.js';
 import { SplashScreens } from './SplashScreens.js';
 import { EventEmitter } from './EventEmitter.js';
@@ -15,67 +13,54 @@ export class UIManager extends EventEmitter {
     
     this.elements = {};
     this.splashScreens = null;
+    this.currentMode = 'omniscient';
     
     this.createUI();
     this.setupEventListeners();
   }
 
-  /**
-   * Create all UI elements
-   */
   createUI() {
-    // Create main UI container and get element references
     this.elements = createUIContainer();
-    
-    // Create splash screens
     this.splashScreens = new SplashScreens();
   }
 
-  /**
-   * Show collision splash screen
-   */
-  showCollisionSplash(type) {
-    this.splashScreens.showCollision(type);
-  }
-
-  /**
-   * Show success splash screen
-   */
-  showSuccessSplash() {
-    this.splashScreens.showSuccess();
-  }
-
-  /**
-   * Show timeout splash screen
-   */
-  showTimeoutSplash() {
-    this.splashScreens.showTimeout();
-  }
-
-  /**
-   * Hide all splash screens
-   */
-  hideSplash() {
-    this.splashScreens.hideAll();
-  }
-
-  /**
-   * Setup event listeners for UI interactions
-   */
   setupEventListeners() {
-    // Button clicks
-    this.elements.btnNewTarget.addEventListener('click', () => {
-      this.emit('newTarget');
+    const el = this.elements;
+    
+    // Navigation mode selector
+    el.navModeRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        this.currentMode = e.target.value;
+        this.emit('modeChange', this.currentMode);
+      });
     });
     
-    this.elements.btnReset.addEventListener('click', () => {
-      this.emit('reset');
-    });
+    // Buttons
+    el.btnNewTarget.addEventListener('click', () => this.emit('newTarget'));
+    el.btnReset.addEventListener('click', () => this.emit('reset'));
     
-    // Checkboxes
-    this.elements.lidarToggle.addEventListener('change', (e) => {
+    // Toggles
+    el.lidarToggle.addEventListener('change', (e) => {
       this.emit('lidarToggle', e.target.checked);
     });
+    
+    el.pathToggle.addEventListener('change', (e) => {
+      this.emit('pathToggle', e.target.checked);
+    });
+    
+    // Training buttons
+    el.btnGenerate.addEventListener('click', () => {
+      const episodes = parseInt(el.trainEpisodes.value, 10);
+      this.emit('generateData', episodes);
+    });
+    
+    el.btnTrain.addEventListener('click', () => {
+      const epochs = parseInt(el.trainEpochs.value, 10);
+      this.emit('trainModel', epochs);
+    });
+    
+    el.btnSave.addEventListener('click', () => this.emit('saveModel'));
+    el.btnLoad.addEventListener('click', () => this.emit('loadModel'));
     
     // Keyboard
     document.addEventListener('keydown', (e) => {
@@ -87,21 +72,55 @@ export class UIManager extends EventEmitter {
     });
   }
 
-  /**
-   * Update drone stats display
-   */
+  // Mode
+  getMode() {
+    return this.currentMode;
+  }
+  
+  setMode(mode) {
+    this.currentMode = mode;
+    this.elements.navModeRadios.forEach(radio => {
+      radio.checked = radio.value === mode;
+    });
+  }
+
+  // Splash screens
+  showCollisionSplash(type) {
+    this.splashScreens.showCollision(type);
+  }
+
+  showSuccessSplash() {
+    this.splashScreens.showSuccess();
+  }
+
+  showTimeoutSplash() {
+    this.splashScreens.showTimeout();
+  }
+
+  hideSplash() {
+    this.splashScreens.hideAll();
+  }
+
+  // Stats updates
   updateDroneStats(speed, altitude, distToTarget) {
     StatsDisplay.updateDroneStats(this.elements, speed, altitude, distToTarget);
   }
 
-  /**
-   * Update observation display - shows sensor data
-   * @param {Object} obsData - Observation data object
-   */
+  updateNavigationStatus(status, progress) {
+    const el = this.elements;
+    if (el.navStatus) {
+      el.navStatus.textContent = status;
+      el.navStatus.style.color = status.includes('Clear') ? '#4f4' : 
+                                  status.includes('Avoiding') ? '#f44' : '#ff4';
+    }
+    if (el.navProgress) {
+      el.navProgress.textContent = progress;
+    }
+  }
+
   updateObservationDisplay(obsData) {
     const el = this.elements;
     
-    // Target info
     if (el.obsTargetDist) {
       el.obsTargetDist.textContent = obsData.distToTarget?.toFixed(1) || '∞';
     }
@@ -116,7 +135,6 @@ export class UIManager extends EventEmitter {
       el.obsTargetVisible.style.color = obsData.canSeeTarget ? '#4f4' : '#f44';
     }
     
-    // Obstacle detection
     if (el.obsMinObstacle) {
       const minDist = obsData.minObstacleDist;
       if (minDist !== undefined && minDist < obsData.maxRange) {
@@ -128,51 +146,60 @@ export class UIManager extends EventEmitter {
       }
     }
     
-    // Vertical sensors
     if (el.obsNadir) {
       const nadir = obsData.nadirDist;
-      if (nadir !== undefined && nadir < 100) {
-        el.obsNadir.textContent = nadir.toFixed(1);
-      } else {
-        el.obsNadir.textContent = '∞';
-      }
+      el.obsNadir.textContent = nadir < 100 ? nadir.toFixed(1) : '∞';
     }
     
-    // Velocity
     if (obsData.velocity) {
       if (el.obsVelForward) el.obsVelForward.textContent = obsData.velocity.vx?.toFixed(1) || '0.0';
       if (el.obsVelRight) el.obsVelRight.textContent = obsData.velocity.vy?.toFixed(1) || '0.0';
       if (el.obsVelUp) el.obsVelUp.textContent = obsData.velocity.vz?.toFixed(1) || '0.0';
     }
-    
-    // Navigation status - reactive mode shows obstacle proximity
-    if (el.navStatus) {
-      const minDist = obsData.minObstacleDist;
-      if (minDist < 3) {
-        el.navStatus.textContent = 'Avoiding obstacle';
-        el.navStatus.style.color = '#f44';
-      } else if (minDist < 6) {
-        el.navStatus.textContent = 'Obstacle nearby';
-        el.navStatus.style.color = '#ff4';
-      } else {
-        el.navStatus.textContent = 'Clear path';
-        el.navStatus.style.color = '#4f4';
-      }
-    }
-    
-    if (el.navProgress) {
-      // Show distance to target instead of path progress
-      const dist = obsData.distToTarget || 0;
-      el.navProgress.textContent = `${dist.toFixed(1)}m`;
-    }
   }
 
-  /**
-   * Update episode stats
-   */
   updateEpisodeStats(steps) {
     if (this.elements.episodeStepCount) {
       this.elements.episodeStepCount.textContent = steps;
     }
+  }
+
+  // Training UI
+  updateTrainingStats(stats) {
+    const el = this.elements;
+    if (el.statSamples) el.statSamples.textContent = stats.totalSamples || 0;
+    if (el.statLoss && stats.trainingLoss !== null) {
+      el.statLoss.textContent = stats.trainingLoss.toFixed(6);
+    }
+  }
+
+  showProgress(text, percent) {
+    const el = this.elements;
+    el.progressContainer.style.display = 'block';
+    el.progressText.textContent = text;
+    el.progressPercent.textContent = `${Math.round(percent * 100)}%`;
+    el.progressBar.style.width = `${percent * 100}%`;
+  }
+
+  hideProgress() {
+    this.elements.progressContainer.style.display = 'none';
+  }
+
+  setGenerating(isGenerating) {
+    this.elements.btnGenerate.disabled = isGenerating;
+    this.elements.btnGenerate.textContent = isGenerating ? 'Generating...' : 'Generate Data';
+  }
+
+  setTraining(isTraining) {
+    this.elements.btnTrain.disabled = isTraining;
+    this.elements.btnTrain.textContent = isTraining ? 'Training...' : 'Train';
+  }
+
+  enableTrain(enabled) {
+    this.elements.btnTrain.disabled = !enabled;
+  }
+
+  enableSave(enabled) {
+    this.elements.btnSave.disabled = !enabled;
   }
 }

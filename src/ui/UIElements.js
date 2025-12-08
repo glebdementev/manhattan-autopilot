@@ -1,14 +1,34 @@
 /**
- * UI Elements - Creates and manages DOM elements for the simulation UI
+ * UI Elements - Creates DOM elements for the simulation UI
+ * Two navigation modes: Omniscient (A*) and Learned Model
  */
 
-/**
- * Create the main info panel HTML structure
- */
 export function createInfoPanelHTML() {
   return `
     <div id="info-panel">
       <h2>🚁 Drone Navigator</h2>
+      
+      <div class="section">
+        <h3>🧭 Navigation Mode</h3>
+        <div class="mode-selector">
+          <label class="radio-label">
+            <input type="radio" name="nav-mode" value="omniscient" checked>
+            <span>Omniscient (A*)</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="nav-mode" value="learned">
+            <span>Learned Model</span>
+          </label>
+        </div>
+        <div class="stat">
+          <span class="label">Status:</span>
+          <span id="nav-status">Ready</span>
+        </div>
+        <div class="stat">
+          <span class="label">Path:</span>
+          <span id="nav-progress">-</span>
+        </div>
+      </div>
       
       <div class="section">
         <h3>Drone</h3>
@@ -27,22 +47,10 @@ export function createInfoPanelHTML() {
       </div>
       
       <div class="section">
-        <h3>🧭 Navigation</h3>
-        <div class="stat">
-          <span class="label">Status:</span>
-          <span id="nav-status">Navigating...</span>
-        </div>
-        <div class="stat">
-          <span class="label">Remaining:</span>
-          <span id="nav-progress">0m</span>
-        </div>
-      </div>
-      
-      <div class="section">
         <h3>Controls</h3>
         <div class="control-group">
           <button id="btn-new-target">New Target</button>
-          <button id="btn-reset">Reset Position</button>
+          <button id="btn-reset">Reset</button>
         </div>
       </div>
       
@@ -50,13 +58,56 @@ export function createInfoPanelHTML() {
         <h3>Display</h3>
         <label class="checkbox-label">
           <input type="checkbox" id="lidar-toggle">
-          Show LiDAR Rays
+          Show LiDAR
         </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="path-toggle" checked>
+          Show Path
+        </label>
+      </div>
+      
+      <div class="section" id="training-section">
+        <h3>🧠 Model Training</h3>
+        <div class="stat">
+          <span class="label">Samples:</span>
+          <span id="stat-samples">0</span>
+        </div>
+        <div class="stat">
+          <span class="label">Loss:</span>
+          <span id="stat-loss">-</span>
+        </div>
+        <div class="training-inputs">
+          <label>
+            Episodes:
+            <input type="number" id="train-episodes" value="100" min="10" max="5000">
+          </label>
+          <label>
+            Epochs:
+            <input type="number" id="train-epochs" value="30" min="5" max="200">
+          </label>
+        </div>
+        <div id="training-progress" style="display: none;">
+          <div class="progress-label">
+            <span id="progress-text">Generating...</span>
+            <span id="progress-percent">0%</span>
+          </div>
+          <div class="progress-bar-container">
+            <div id="progress-bar" class="progress-bar"></div>
+          </div>
+        </div>
+        <div class="control-group">
+          <button id="btn-generate">Generate Data</button>
+          <button id="btn-train" disabled>Train</button>
+        </div>
+        <div class="control-group">
+          <button id="btn-save" disabled>Save</button>
+          <button id="btn-load">Load</button>
+        </div>
       </div>
     </div>
     
     <div id="reward-panel">
-      <h2>📊 Sensor View</h2>
+      <h2>📊 Sensors</h2>
       
       <div class="section">
         <h3>🎯 Target</h3>
@@ -75,17 +126,13 @@ export function createInfoPanelHTML() {
       </div>
       
       <div class="section">
-        <h3>📡 Obstacle Detection</h3>
+        <h3>📡 Obstacles</h3>
         <div class="stat">
-          <span class="label">Min Distance:</span>
+          <span class="label">Min Dist:</span>
           <span id="obs-min-obstacle" class="obs-value">∞</span> m
         </div>
-      </div>
-      
-      <div class="section">
-        <h3>↕️ Vertical Sensors</h3>
         <div class="stat">
-          <span class="label">Ground (↓):</span>
+          <span class="label">Ground:</span>
           <span id="obs-nadir" class="obs-value">∞</span> m
         </div>
       </div>
@@ -94,15 +141,15 @@ export function createInfoPanelHTML() {
         <h3>🚀 Velocity</h3>
         <div class="stat">
           <span class="label">X:</span>
-          <span id="obs-vel-forward" class="obs-value">0.0</span> m/s
+          <span id="obs-vel-forward" class="obs-value">0.0</span>
         </div>
         <div class="stat">
           <span class="label">Y:</span>
-          <span id="obs-vel-right" class="obs-value">0.0</span> m/s
+          <span id="obs-vel-right" class="obs-value">0.0</span>
         </div>
         <div class="stat">
           <span class="label">Z:</span>
-          <span id="obs-vel-up" class="obs-value">0.0</span> m/s
+          <span id="obs-vel-up" class="obs-value">0.0</span>
         </div>
       </div>
       
@@ -116,33 +163,28 @@ export function createInfoPanelHTML() {
     </div>
     
     <div id="help-panel">
-      <p><strong>Manual Controls:</strong></p>
-      <p><strong>W/S</strong> - Forward/Back</p>
-      <p><strong>A/D</strong> - Left/Right</p>
-      <p><strong>Q/Z</strong> - Up/Down</p>
+      <p><strong>Manual:</strong> WASD + Q/Z</p>
       <p><strong>R</strong> - New target</p>
     </div>
   `;
 }
 
-/**
- * Create the main UI container with all elements
- * @returns {Object} References to all UI elements
- */
 export function createUIContainer() {
   const container = document.createElement('div');
   container.id = 'ui-container';
   container.innerHTML = createInfoPanelHTML();
   document.body.appendChild(container);
 
-  // Return references to all elements
   return {
+    // Mode selector
+    navModeRadios: document.querySelectorAll('input[name="nav-mode"]'),
+    
     // Drone stats
     speedValue: document.getElementById('speed-value'),
     altitudeValue: document.getElementById('altitude-value'),
     targetDistValue: document.getElementById('target-dist-value'),
     
-    // Navigation status
+    // Navigation
     navStatus: document.getElementById('nav-status'),
     navProgress: document.getElementById('nav-progress'),
     
@@ -152,8 +194,23 @@ export function createUIContainer() {
     
     // Toggles
     lidarToggle: document.getElementById('lidar-toggle'),
+    pathToggle: document.getElementById('path-toggle'),
     
-    // Observation display elements
+    // Training
+    trainEpisodes: document.getElementById('train-episodes'),
+    trainEpochs: document.getElementById('train-epochs'),
+    statSamples: document.getElementById('stat-samples'),
+    statLoss: document.getElementById('stat-loss'),
+    progressContainer: document.getElementById('training-progress'),
+    progressText: document.getElementById('progress-text'),
+    progressPercent: document.getElementById('progress-percent'),
+    progressBar: document.getElementById('progress-bar'),
+    btnGenerate: document.getElementById('btn-generate'),
+    btnTrain: document.getElementById('btn-train'),
+    btnSave: document.getElementById('btn-save'),
+    btnLoad: document.getElementById('btn-load'),
+    
+    // Observation display
     obsTargetDist: document.getElementById('obs-target-dist'),
     obsTargetDir: document.getElementById('obs-target-dir'),
     obsTargetVisible: document.getElementById('obs-target-visible'),
@@ -163,7 +220,7 @@ export function createUIContainer() {
     obsVelRight: document.getElementById('obs-vel-right'),
     obsVelUp: document.getElementById('obs-vel-up'),
     
-    // Episode stats
+    // Episode
     episodeStepCount: document.getElementById('episode-step-count'),
   };
 }

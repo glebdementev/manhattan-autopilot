@@ -2,6 +2,7 @@ import { ForestGenerator } from '../forest/ForestGenerator.js';
 import { Drone } from '../vehicle/Drone.js';
 import { Lidar } from '../vehicle/Lidar.js';
 import { NavigationEnvironment } from '../navigation/NavigationEnvironment.js';
+import { PathVisualizer } from '../navigation/PathVisualizer.js';
 import { SceneManager } from '../scene/SceneManager.js';
 import { UIManager } from '../ui/UIManager.js';
 
@@ -46,6 +47,9 @@ export class ComponentFactory {
       forestGenerator,
       components.sceneManager
     );
+
+    // Omniscient path visualization
+    components.pathVisualizer = new PathVisualizer(components.sceneManager);
     
     // UI
     components.ui = new UIManager();

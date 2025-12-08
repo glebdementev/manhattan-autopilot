@@ -90,7 +90,8 @@ body {
   display: none;
 }
 
-#info-panel h3 {
+#info-panel h3,
+#reward-panel h3 {
   font-size: 10px;
   font-weight: 600;
   color: rgba(150, 200, 255, 0.5);
@@ -109,18 +110,6 @@ body {
   margin-bottom: 0;
   padding-bottom: 0;
   border-bottom: none;
-}
-
-.rl-section {
-  background: linear-gradient(135deg, rgba(80, 180, 255, 0.08), rgba(100, 200, 255, 0.04));
-  margin: -10px -12px 16px;
-  padding: 14px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(80, 180, 255, 0.15);
-}
-
-.rl-section h3 {
-  color: rgba(100, 200, 255, 0.7);
 }
 
 .stat {
@@ -250,7 +239,8 @@ button.primary:hover:not(:disabled) {
   background: rgba(80, 180, 255, 0.08);
 }
 
-.radio-group input[type="radio"] {
+/* Common radio input styles */
+input[type="radio"] {
   appearance: none;
   width: 16px;
   height: 16px;
@@ -262,12 +252,12 @@ button.primary:hover:not(:disabled) {
   flex-shrink: 0;
 }
 
-.radio-group input[type="radio"]:checked {
+input[type="radio"]:checked {
   border-color: #60d0ff;
   background: transparent;
 }
 
-.radio-group input[type="radio"]:checked::after {
+input[type="radio"]:checked::after {
   content: '';
   position: absolute;
   top: 50%;
@@ -500,27 +490,6 @@ body.loading::before {
   gap: 8px;
 }
 
-#reward-panel h3 {
-  font-size: 9px;
-  font-weight: 600;
-  color: rgba(200, 150, 255, 0.5);
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-}
-
-#reward-panel .section {
-  margin-bottom: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(180, 100, 255, 0.12);
-}
-
-#reward-panel .section:last-child {
-  margin-bottom: 0;
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
 #reward-panel .stat {
   display: flex;
   justify-content: space-between;
@@ -731,4 +700,99 @@ body.loading::before {
   color: rgba(255, 255, 255, 0.5);
   letter-spacing: 1px;
   font-family: 'JetBrains Mono', monospace;
+}
+
+/* Mode Selector */
+.mode-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(180, 200, 220, 0.8);
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.radio-label:hover {
+  background: rgba(80, 180, 255, 0.08);
+  border-color: rgba(80, 180, 255, 0.15);
+}
+
+.radio-label input[type="radio"] {
+}
+
+.radio-label input[type="radio"]:checked {
+}
+
+.radio-label input[type="radio"]:checked + span {
+  color: #60d0ff;
+  font-weight: 600;
+}
+
+/* Training Section */
+.training-inputs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.training-inputs label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  color: rgba(180, 200, 220, 0.6);
+}
+
+.training-inputs input[type="number"] {
+  width: 100%;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(80, 180, 255, 0.2);
+  border-radius: 6px;
+  color: #80d0ff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.training-inputs input[type="number"]:focus {
+  outline: none;
+  border-color: rgba(80, 180, 255, 0.5);
+  box-shadow: 0 0 10px rgba(80, 180, 255, 0.2);
+}
+
+/* Progress Bar */
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: rgba(180, 200, 220, 0.6);
+  margin-bottom: 4px;
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #60d0ff, #60ff90);
+  border-radius: 3px;
+  transition: width 0.3s ease;
 }
