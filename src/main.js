@@ -129,7 +129,6 @@ class Simulation {
   activateLoadedModel() {
     this.createLearnedController();
     this.components.ui.enableSave(true);
-    this.components.ui.enableDownload(true);
     this.components.ui.enableReport(true);
     this.components.ui.updateTrainingStats(this.trainingOrchestrator.getStats());
     this.components.ui.setModelReady(true);
@@ -200,7 +199,6 @@ class Simulation {
     ui.on('trainModel', (epochs) => this.trainModel(epochs));
     ui.on('saveModel', () => this.saveModel());
     ui.on('uploadModel', (files) => this.loadModelFromFiles(files));
-    ui.on('downloadModel', () => this.downloadModel());
     ui.on('createReport', () => this.createReport());
     ui.on('lidarConfigChange', (config) => this.updateLidarConfig(config));
     
@@ -279,8 +277,7 @@ class Simulation {
   async saveModel() {
     try {
       await this.trainingOrchestrator.save();
-      await this.trainingOrchestrator.saveToFiles();
-      console.log('Model saved to browser and downloaded');
+      console.log('Model saved to browser');
     } catch (e) {
       console.error('Save failed:', e);
     }
@@ -291,15 +288,6 @@ class Simulation {
     if (loaded) {
       console.log('Model loaded');
       this.activateLoadedModel();
-    }
-  }
-
-  async downloadModel() {
-    try {
-      await this.trainingOrchestrator.saveToFiles();
-      this.components.ui.enableDownload(true);
-    } catch (e) {
-      console.error('Download failed:', e);
     }
   }
 
@@ -315,8 +303,7 @@ class Simulation {
     };
     
     const report = ReportGenerator.generate(stats, trainingHistory, modelInfo);
-    ReportGenerator.download(report);
-    console.log('Report created and downloaded');
+    console.log('Training report:', report);
   }
 
   async loadModelFromFiles(files) {

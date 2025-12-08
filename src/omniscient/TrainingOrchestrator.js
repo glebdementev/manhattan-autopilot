@@ -321,14 +321,6 @@ export class TrainingOrchestrator {
   }
   
   /**
-   * Save model to downloadable files
-   */
-  async saveToFiles(modelName = 'path-predictor') {
-    await this.predictor.download(modelName);
-    console.log(`Saved model to files`);
-  }
-
-  /**
    * Load model from IndexedDB
    */
   async load(modelName = 'path-predictor') {
@@ -350,7 +342,7 @@ export class TrainingOrchestrator {
   }
   
   /**
-   * Export everything as downloadable JSON
+   * Export everything as JSON
    */
   exportAll() {
     return {

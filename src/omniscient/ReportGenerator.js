@@ -1,5 +1,5 @@
 /**
- * ReportGenerator - Creates downloadable training reports
+ * ReportGenerator - Creates training reports
  */
 
 export class ReportGenerator {
@@ -43,17 +43,5 @@ export class ReportGenerator {
     return report;
   }
 
-  /**
-   * Download the report as JSON
-   */
-  static download(report, filename = 'training-report') {
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${filename}-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
 }
 

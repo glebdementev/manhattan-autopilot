@@ -31,7 +31,6 @@ export class UIManager extends EventEmitter {
     const el = this.elements;
     if (el.lidarHorizontal) el.lidarHorizontal.value = LIDAR.HORIZONTAL_RAYS;
     if (el.lidarVertical) el.lidarVertical.value = LIDAR.VERTICAL_LAYERS;
-    if (el.btnDownloadModel) el.btnDownloadModel.disabled = true;
   }
 
   setupEventListeners() {
@@ -71,7 +70,6 @@ export class UIManager extends EventEmitter {
       // Allow selecting the same file twice
       e.target.value = '';
     });
-    el.btnDownloadModel.addEventListener('click', () => this.emit('downloadModel'));
     el.btnTrainModel.addEventListener('click', () => this.showTrainingModal());
     
     // Toggles
@@ -178,9 +176,6 @@ export class UIManager extends EventEmitter {
       el.modelStatus.style.color = ready ? '#60ff90' : 'rgba(180, 200, 220, 0.6)';
     }
     
-    if (el.btnDownloadModel) {
-      el.btnDownloadModel.disabled = !ready;
-    }
   }
 
   // Splash screens
@@ -248,11 +243,6 @@ export class UIManager extends EventEmitter {
     this.elements.btnSave.disabled = !enabled;
   }
 
-  enableDownload(enabled) {
-    if (this.elements.btnDownloadModel) {
-      this.elements.btnDownloadModel.disabled = !enabled;
-    }
-  }
 
   enableReport(enabled) {
     if (this.elements.btnCreateReport) {

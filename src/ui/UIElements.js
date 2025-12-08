@@ -134,7 +134,6 @@ export function createInfoPanelHTML() {
           <button id="btn-generate">Generate Data</button>
           <button id="btn-train" disabled>Train</button>
           <button id="btn-save" disabled>Save Model</button>
-          <button id="btn-download-model" disabled>Download Model</button>
           <button id="btn-create-report" disabled>Create Report</button>
         </div>
         
@@ -197,7 +196,6 @@ export function createUIContainer() {
 
     // Model files
     btnUploadModel: document.getElementById('btn-upload-model'),
-    btnDownloadModel: document.getElementById('btn-download-model'),
     modelFileInput: document.getElementById('model-file-input'),
 
     // Report

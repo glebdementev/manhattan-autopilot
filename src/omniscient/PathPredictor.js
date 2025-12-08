@@ -187,22 +187,6 @@ export class PathPredictor {
   }
   
   /**
-   * Download model as single JSON file containing all weights
-   */
-  async download(name = 'path-predictor') {
-    this.assertModelReady();
-    const data = await this.exportWeights();
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${name}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    console.log(`Model downloaded as '${name}.json'`);
-  }
-
-  /**
    * Load model from IndexedDB
    */
   async load(name = 'path-predictor') {
